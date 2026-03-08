@@ -229,13 +229,6 @@ metadata_columns:
       Internal protocol document version. Cross-references the protocol
       PDF/DOCX input to BOUNCER.
 
-  - name: rna_source_experiment_id
-    dtype: str
-    required: false
-    description: >
-      experiment_id of the upstream RNA-seq (or other omics) run from which
-      the RNA was derived. Enables cross-assay linkage in the feature store
-      (e.g. ENCODE_CELLLINE_2024). Leave blank if RNA was not sequenced.
 
 # ──────────────────────────────────────────────────────────────────────────────
 # FEATURE STORE OUTPUT

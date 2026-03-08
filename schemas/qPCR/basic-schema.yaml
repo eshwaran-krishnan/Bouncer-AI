@@ -49,13 +49,6 @@ metadata_columns:
       Alphanumeric well identifier (row A–H, column 1–12) on a 96-well plate.
       Must be unique per plate_id. Must match Well Position in the Ct export.
 
-  - name: well_number
-    dtype: int
-    required: true
-    description: >
-      1-indexed well number in row-major order (A1=1 … H12=96).
-      Used to verify well_position encoding and for plate-map visualisation.
-
 
   - name: experiment_id
     dtype: str

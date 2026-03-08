@@ -1,0 +1,418 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# BOUNCER — qPCR QC Contract (Basic)
+# Defines thresholds for Ct export integrity, technical replicate consistency,
+# NTC contamination detection, reference gene stability, cross-file concordance,
+# and experimental design adequacy.
+#
+# BOUNCER registers raw Ct values only. Normalisation (delta-Ct, fold change)
+# is left to the downstream consumer. QC checks on reference genes and
+# replicates validate that the raw data is fit for downstream normalisation,
+# not that BOUNCER will perform it.
+#
+# Severity levels:
+#   hard    → blocks registration; data cannot enter the feature store
+#   soft    → flagged in report but does not block; logged in .uns['warnings']
+#   warning → design / metadata advisory; never blocks; always carried forward
+#
+# NTC exemptions: wells with target_type = ntc are skipped for all checks
+# that are not explicitly NTC-targeted (e.g. Ct range, tech rep SD).
+# ──────────────────────────────────────────────────────────────────────────────
+
+version: "1.0.0"
+assay_type: qpcr
+instrument_format: quantstudio_ct_export
+data_stage: raw_ct
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 1. CT EXPORT INTEGRITY CHECKS
+# Applied directly to the instrument Ct export CSV before any normalisation.
+# A single well failing a hard rule fails the entire plate.
+# ──────────────────────────────────────────────────────────────────────────────
+
+ct_export:
+
+  # ── CT VALUE PRESENCE ───────────────────────────────────────────────────────
+
+  - check: ct_values_present_non_ntc
+    description: >
+      All non-NTC wells must have a numeric CT value.
+      'Undetermined' or empty CT in a non-NTC well indicates assay failure.
+    severity: hard
+    rationale: >
+      Missing Ct values for sample wells cannot be imputed and must not
+      enter the feature store — they would silently corrupt any downstream
+      normalisation performed by the consumer.
+
+  - check: ct_numeric_type
+    description: CT column must be numeric (float) for all non-NTC wells.
+    severity: hard
+    rationale: >
+      String or mixed-type CT values indicate an export formatting issue
+      or a partially failed run.
+
+  # ── CT VALUE RANGE ──────────────────────────────────────────────────────────
+
+  - check: ct_range_non_ntc
+    description: >
+      CT values for non-NTC wells must be within a biologically plausible range.
+    hard_min: 5.0
+    hard_max: 40.0
+    soft_min: 10.0
+    soft_max: 38.0
+    severity_outside_hard: hard
+    severity_outside_soft: soft
+    rationale: >
+      Ct < 5 is physically impossible with standard PCR cycle counts and
+      indicates instrument or software error. Ct > 40 is beyond detection
+      limit and effectively undetermined. Ct < 10 or > 38 warrants
+      investigation (wrong dilution, degraded sample, or low expression).
+
+  # ── TECHNICAL REPLICATE CONSISTENCY ─────────────────────────────────────────
+
+  - check: ct_technical_replicate_sd
+    description: >
+      Standard deviation of CT values across technical replicates for the same
+      biological_sample_id × target_name must not exceed threshold.
+    hard_max: 1.0
+    soft_max: 0.5
+    severity_above_hard: hard
+    severity_above_soft: soft
+    rationale: >
+      Ct SD > 1.0 indicates a failed replicate, pipetting error, or plate
+      positioning issue — the outlier replicate must be identified and excluded
+      or the measurement repeated. Ct SD 0.5–1.0 is elevated and should be
+      investigated, particularly for lowly expressed targets (Ct > 30).
+
+  - check: ct_outlier_replicate_detection
+    description: >
+      Flag individual technical replicates that deviate > 1.5 Ct units from
+      the mean of all replicates for that sample × target pair.
+    severity: soft
+    rationale: >
+      A single outlier replicate can inflate SD without crossing the hard
+      threshold for the triplet. Flagging allows manual review before exclusion.
+
+  # ── PLATE HEADER METADATA ───────────────────────────────────────────────────
+
+  - check: plate_barcode_in_header
+    description: >
+      The Ct export file must contain a '# Plate Barcode' comment line in
+      the header block. Value must be non-empty.
+    severity: soft
+    rationale: >
+      Plate barcode enables traceability back to the physical plate and
+      cross-matching with the samplesheet plate_id.
+
+  - check: run_date_in_header
+    description: >
+      The Ct export file must contain a '# Run Date' comment line in the
+      header block in YYYY-MM-DD format.
+    severity: soft
+    rationale: Absence of run date breaks temporal provenance.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 2. NTC CONTAMINATION CHECKS
+# NTC (no-template control) wells are the primary contamination guard.
+# Any amplification in an NTC is a hard failure for the target in question.
+# ──────────────────────────────────────────────────────────────────────────────
+
+ntc:
+
+  - check: ntc_ct_undetermined
+    description: >
+      All wells with target_type = ntc must have CT = 'Undetermined'.
+      Any numeric Ct value in an NTC well indicates contamination.
+    severity: hard
+    rationale: >
+      Amplification in a no-template control invalidates results for that
+      target across the entire plate. The source of contamination (reagents,
+      environment, carry-over) must be identified before data can be trusted.
+
+  - check: ntc_ct_high_threshold
+    description: >
+      If an NTC well has a numeric CT value, it must be ≥ 35.0.
+      Ct < 35 in an NTC is high-level contamination; Ct ≥ 35 is marginal.
+    hard_max_ct_for_ntc: 34.9   # any NTC Ct below this → hard failure
+    severity: hard
+    rationale: >
+      Late-amplifying NTCs (Ct ≥ 35) may represent negligible contamination
+      in some labs. Ct < 35 in an NTC is unambiguous contamination and blocks
+      the entire target from registration.
+
+  - check: ntc_present_per_target
+    description: >
+      At least one NTC well must be present for every unique target_name
+      on the plate.
+    severity: warning
+    rationale: >
+      Without a per-target NTC, contamination cannot be excluded for that
+      target. Results can still be registered but must carry a warning.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 3. REFERENCE GENE CHECKS
+# Validates that reference (housekeeping) genes are suitable for downstream
+# normalisation by the consumer. BOUNCER does not compute delta-Ct —
+# it validates that the raw Ct data is fit for that purpose.
+# ──────────────────────────────────────────────────────────────────────────────
+
+reference_genes:
+
+  - check: min_reference_genes
+    description: >
+      At least one target with target_type = reference must be present.
+      Two or more reference genes are strongly recommended.
+    hard_min: 1
+    soft_min: 2
+    severity_below_hard: hard
+    severity_below_soft: soft
+    rationale: >
+      Without a reference gene, downstream delta-Ct normalisation is impossible.
+      A single reference gene cannot detect its own instability across
+      conditions; two or more allow cross-validation.
+
+  - check: reference_gene_ct_range
+    description: >
+      CT values for reference gene wells must fall within expected range
+      for a stably expressed housekeeping gene.
+    hard_min: 10.0
+    hard_max: 30.0
+    soft_min: 14.0
+    soft_max: 25.0
+    severity_outside_hard: hard
+    severity_outside_soft: soft
+    rationale: >
+      Reference gene Ct outside 14–25 may indicate under-loaded cDNA
+      (low Ct) or degraded/insufficient template (high Ct), both of
+      which compromise normalisation accuracy.
+
+  - check: reference_gene_stability_cv
+    description: >
+      Coefficient of variation (CV) of CT values across all biological
+      samples for each reference gene must not exceed threshold.
+    hard_max: 0.25    # CV = SD / mean Ct across samples
+    soft_max: 0.15
+    severity_above_hard: hard
+    severity_above_soft: soft
+    rationale: >
+      A highly variable reference gene is not a stable normaliser.
+      CV > 25 % means the reference itself has condition-dependent
+      expression, which will introduce systematic bias into any
+      downstream delta-Ct normalisation.
+
+  - check: reference_gene_not_in_targets
+    description: >
+      A gene listed as target_type = reference must not also appear as
+      target_type = target in the same experiment.
+    severity: hard
+    rationale: >
+      Dual assignment is a metadata error that will cause the gene to be
+      double-counted in both normalisation and target quantification.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 4. SAMPLESHEET INTEGRITY CHECKS
+# Applied to the plate samplesheet CSV before cross-referencing with Ct export.
+# ──────────────────────────────────────────────────────────────────────────────
+
+samplesheet:
+
+  - check: sample_id_unique
+    description: Every row in the samplesheet must have a unique sample_id.
+    severity: hard
+    rationale: Duplicate sample_ids cause silent row overwriting during merge.
+
+  - check: well_position_unique_per_plate
+    description: >
+      Within each plate_id, well_position must be unique.
+      The same well_position may appear in different plates.
+    severity: hard
+    rationale: >
+      Two rows sharing the same plate_id + well_position cannot both be
+      real — it indicates a data entry error or a copy-paste mistake.
+
+  - check: no_empty_required_columns
+    description: >
+      Columns marked required: true in the schema must have no null,
+      empty string, or whitespace-only values in non-NTC rows.
+    severity: hard
+    rationale: Missing required metadata breaks cross-assay linking
+               and renders registered Ct values uninterpretable.
+
+  - check: target_type_values
+    description: >
+      target_type must be one of: reference, target, ntc.
+      Any other value is a schema violation.
+    severity: hard
+    rationale: BOUNCER uses target_type to route wells through different
+               QC branches; unknown values break the workflow.
+
+  - check: task_consistent_with_target_type
+    description: >
+      Wells with target_type = ntc must have task = NTC.
+      Non-NTC wells must have task = UNKNOWN (or equivalent non-NTC value).
+    severity: soft
+    rationale: >
+      Inconsistency between task and target_type suggests a transcription
+      error in the samplesheet that could misclassify NTC wells.
+
+  - check: cdna_input_consistent_per_sample
+    description: >
+      All wells belonging to the same biological_sample_id must have
+      identical cdna_input_ng and cdna_concentration_ng_uL values.
+    severity: soft
+    rationale: >
+      A single cDNA preparation should yield the same input and concentration
+      across all wells. Discrepancies indicate a data entry error.
+
+  - check: replicate_is_integer_non_ntc
+    description: >
+      biological_replicate and technical_replicate must be positive integers
+      for all non-NTC wells.
+    severity: hard
+    rationale: Non-integer or null replicate numbers break grouping logic
+               for Ct SD calculation and delta-Ct averaging.
+
+  - check: organism_in_allowed_values
+    description: organism (non-NTC) must be one of the allowed values in the schema.
+    severity: hard
+    rationale: Unknown organism strings prevent reference gene validation
+               and genome provenance annotation.
+
+  - check: passage_number_range
+    description: passage_number, if present, must be a positive integer ≤ 100.
+    severity: soft
+    rationale: >
+      Values outside this range likely indicate data entry errors.
+      Very high passage numbers (> 50) will also trigger a design warning.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 5. CROSS-FILE CONCORDANCE CHECKS
+# Validates that the samplesheet and the Ct export describe the same experiment.
+# These checks compare samplesheet rows against Ct export data rows.
+# ──────────────────────────────────────────────────────────────────────────────
+
+cross_file:
+
+  - check: well_positions_match
+    description: >
+      Every well_position in the samplesheet must appear in the Ct export,
+      and every Well Position in the Ct export must appear in the samplesheet.
+      No orphan wells on either side.
+    severity: hard
+    rationale: >
+      Unmatched wells mean the samplesheet and Ct export describe different
+      plates or runs — all downstream association of metadata to Ct values
+      would be wrong.
+
+  - check: sample_names_match
+    description: >
+      biological_sample_id in the samplesheet must match Sample Name in the
+      Ct export for each corresponding well_position.
+    severity: hard
+    rationale: >
+      A mismatch between biological_sample_id and Sample Name means the
+      wrong metadata would be associated with the Ct values.
+
+  - check: target_names_match
+    description: >
+      target_name in the samplesheet must match Target Name in the Ct export
+      for each corresponding well_position.
+    severity: hard
+    rationale: >
+      A target name mismatch would associate Ct values with the wrong gene,
+      corrupting both delta-Ct normalisation and results interpretation.
+
+  - check: plate_barcode_matches_samplesheet
+    description: >
+      The '# Plate Barcode' value in the Ct export header must match at
+      least one plate_id value in the samplesheet.
+    severity: soft
+    rationale: >
+      A mismatch is a strong signal that the wrong samplesheet was paired
+      with this Ct export. Data can still be registered with a warning if
+      the well-level checks pass, but provenance is uncertain.
+
+  - check: ct_mean_consistent_with_raw_ct
+    description: >
+      The Ct Mean column in the Ct export must be within 0.05 of the mean
+      of all raw CT values for that biological_sample_id × target_name group.
+    severity: soft
+    rationale: >
+      Discrepancy between instrument-reported Ct Mean and the re-computed
+      mean indicates a partial run or that some wells were omitted from the
+      instrument's own averaging (e.g. marked Omit = TRUE).
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 6. EXPERIMENTAL DESIGN CHECKS
+# Never block registration. Written to .uns['warnings'] on the AnnData.
+# Intended to alert downstream analysts to design limitations.
+# ──────────────────────────────────────────────────────────────────────────────
+
+design:
+
+  - check: min_biological_replicates_per_condition
+    value: 2
+    recommended: 3
+    severity: warning
+    rationale: >
+      Fewer than 2 biological replicates per condition gives the downstream
+      consumer no statistical power for significance testing.
+      3 replicates are the practical minimum for robust comparative analysis.
+
+  - check: min_technical_replicates_per_well
+    value: 2
+    recommended: 3
+    severity: warning
+    rationale: >
+      Fewer than 2 technical replicates prevents reliable Ct SD calculation
+      and outlier detection. Triplicate is the community standard.
+
+  - check: control_condition_present
+    accepted_labels: [control, ctrl, untreated, vehicle, DMSO, wildtype, WT,
+                      mock, neg_ctrl, negative_control, scramble, parental]
+    severity: warning
+    rationale: >
+      Without a recognisable reference condition, downstream fold-change
+      calculations by the consumer have no anchor point.
+
+  - check: batch_column_present
+    severity: warning
+    rationale: >
+      Absence of batch information prevents identification and correction of
+      inter-plate or inter-operator technical variation. Strongly recommended
+      even when only one batch exists (label explicitly).
+
+  - check: sex_column_present
+    severity: warning
+    rationale: >
+      Sex is a significant covariate for many gene expression programmes.
+      Its absence cannot be corrected after sample processing.
+
+  - check: batch_not_confounded_with_condition
+    severity: warning
+    rationale: >
+      Perfect confounding of batch and condition means technical variation
+      cannot be separated from biological signal in delta-Ct comparisons.
+
+  - check: high_passage_number
+    threshold: 50
+    severity: warning
+    rationale: >
+      Cell lines at passage > 50 have an elevated risk of phenotypic drift,
+      karyotypic changes, and altered gene expression. Results should be
+      interpreted cautiously and passage number documented in publications.
+
+
+  - check: all_conditions_have_replicates
+    severity: warning
+    rationale: >
+      Every condition in the experiment should have at least 2 biological
+      replicates to enable statistical comparison. Single-replicate conditions
+      are informative but cannot be used for significance testing.
+
+  - check: ct_sd_outlier_samples
+    std_dev_threshold: 2.5
+    severity: warning
+    rationale: >
+      Biological replicates whose mean Ct SD (across all targets) is more than
+      2.5 SD above the plate mean may indicate systematic pipetting problems
+      for that sample (e.g. air bubbles, incorrect template volume).

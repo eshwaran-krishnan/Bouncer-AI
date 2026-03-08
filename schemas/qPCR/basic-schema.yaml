@@ -1,0 +1,252 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# BOUNCER — qPCR Schema Contract (Basic)
+# Defines what columns must exist in the plate samplesheet and what gets
+# registered to the feature store. Focused on metadata needed for
+# cross-assay linking and downstream modelling.
+#
+# BOUNCER registers raw Ct values only. Normalisation (delta-Ct, fold change)
+# is left to the downstream consumer.
+#
+# This contract covers TaqMan-based qPCR assays with QuantStudio-style
+# instrument exports. One row per well (unique per plate + well_position).
+# ──────────────────────────────────────────────────────────────────────────────
+
+version: "1.0.0"
+assay_type: qpcr
+instrument_format: quantstudio_ct_export
+data_stage: raw_ct
+index_column: sample_id  
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PLATE & WELL COLUMNS
+#
+# required: true  → column must exist and cannot have any empty/null values
+# required: false → column is optional; if present, dtype is enforced
+# dtype options   → str | int | float | category | bool
+#
+# Wells with target_type: ntc are exempt from biological metadata requirements
+# (organism, tissue, condition, etc.) — see QC contract for exemption logic.
+# ──────────────────────────────────────────────────────────────────────────────
+
+metadata_columns:
+
+  # ── IDENTIFIERS ─────────────────────────────────────────────────────────────
+
+  - name: sample_id
+    dtype: str
+    required: true
+    unique: true
+    description: >
+      Primary key. Unique per row., Must be unique across the entire samplesheet.
+      NTC wells use NTC_{target_name}.
+
+  - name: well_position
+    dtype: str
+    required: true
+    unique: true
+    pattern: "^[A-H](\\d|1[0-2])$"   # A1–H12 on a 96-well plate
+    description: >
+      Alphanumeric well identifier (row A–H, column 1–12) on a 96-well plate.
+      Must be unique per plate_id. Must match Well Position in the Ct export.
+
+  - name: well_number
+    dtype: int
+    required: true
+    description: >
+      1-indexed well number in row-major order (A1=1 … H12=96).
+      Used to verify well_position encoding and for plate-map visualisation.
+
+
+  - name: experiment_id
+    dtype: str
+    required: true
+    description: >
+      Groups all wells belonging to the same qPCR experiment.
+      Used to scope provenance and enable per-experiment QC.
+
+  - name: plate_id
+    dtype: str
+    required: true
+    description: >
+      Physical plate barcode or identifier.
+      Must match the Plate Barcode comment line in the Ct export header.
+      A single experiment may span multiple plates; plate_id disambiguates them.
+
+  # ── BIOLOGY ─────────────────────────────────────────────────────────────────
+
+  - name: organism
+    dtype: category
+    required: true
+    ntc_exempt: true
+    allowed_values: [Homo sapiens, Mus musculus, Rattus norvegicus,
+                     Danio rerio, Drosophila melanogaster, Caenorhabditis elegans]
+    description: >
+      Species. Controls which reference gene stability thresholds and
+      housekeeping gene expectations are applied during QC.
+
+  - name: tissue
+    dtype: str
+    required: true
+    ntc_exempt: true
+    description: >
+      Tissue or organ of origin (e.g. blood, liver, PBMC).
+      Free-text; normalise to UBERON ontology during registration where possible.
+
+  - name: cell_type
+    dtype: str
+    required: false
+    description: >
+      Cell type or cell line name when the sample is not a bulk tissue.
+      Required when tissue indicates a cell culture context.
+
+  - name: condition
+    dtype: category
+    required: true
+    ntc_exempt: true
+    description: >
+      Primary experimental grouping (e.g. treated, control, knockdown, GM12878).
+      Must include a recognisable control label — see QC contract for
+      accepted control vocabulary.
+
+  # ── EXPERIMENTAL DESIGN ─────────────────────────────────────────────────────
+
+  - name: biological_replicate
+    dtype: int
+    required: true
+    ntc_exempt: true
+    description: >
+      Biological replicate number (1, 2, 3 ...).
+      All wells from the same biological sample share the same replicate number
+      regardless of target or technical replicate.
+
+  - name: technical_replicate
+    dtype: int
+    required: true
+    ntc_exempt: true
+    description: >
+      Technical replicate number within a biological sample for a given target
+      (typically 1, 2, 3). Ct SD is calculated across technical replicates.
+
+  - name: batch
+    dtype: str
+    required: false
+    description: >
+      Batch identifier — cDNA synthesis date, operator, or plate preparation
+      run. Absence will trigger a design warning. Critical for multi-plate or
+      multi-operator experiments.
+
+  # ── DONOR / CELL LINE ────────────────────────────────────────────────────────
+
+  - name: sex
+    dtype: category
+    required: false
+    allowed_values: [male, female, unknown, mixed]
+    description: >
+      Biological sex of the donor or cell line.
+      Absence will trigger a design warning.
+
+  - name: passage_number
+    dtype: int
+    required: false
+    description: >
+      Cell line passage at time of experiment. High passage is a known
+      source of transcriptional drift. Required when cell_type is set.
+
+  # ── ASSAY DESIGN ─────────────────────────────────────────────────────────────
+
+  - name: target_name
+    dtype: str
+    required: true
+    description: >
+      Gene or target name (e.g. GAPDH, MYC, BCL2).
+      Must match Target Name in the Ct export exactly (case-sensitive).
+
+  - name: target_type
+    dtype: category
+    required: true
+    allowed_values: [reference, target, ntc]
+    description: >
+      Role of this target in the experiment.
+      reference → housekeeping gene used for delta-Ct normalisation.
+      target    → gene of interest.
+      ntc       → no-template control (negative control for contamination).
+
+  - name: task
+    dtype: category
+    required: true
+    allowed_values: [UNKNOWN, NTC]
+    description: >
+      QuantStudio task field. UNKNOWN for standard wells, NTC for
+      no-template controls. Must be consistent with target_type.
+
+  # ── cDNA / RT PROVENANCE ────────────────────────────────────────────────────
+
+  - name: cdna_input_ng
+    dtype: float
+    required: true
+    ntc_exempt: true
+    description: >
+      Mass of total RNA input into reverse transcription (nanograms).
+      Must be consistent across wells with same biological_replicate
+      Used to flag potential loading variation.
+
+  - name: cdna_concentration_ng_uL
+    dtype: float
+    required: true
+    ntc_exempt: true
+    description: >
+      cDNA concentration used as template for qPCR (ng/μL).
+      Inconsistency across technical_replicate from the same sample indicates pipetting error.
+
+  - name: reverse_transcription_kit
+    dtype: str
+    required: true
+    ntc_exempt: true
+    description: >
+      RT kit name and catalogue number (e.g. "SuperScript IV VILO (Thermo, 11756050)").
+      Tracks protocol changes that can affect cDNA yield and efficiency.
+
+  - name: master_mix
+    dtype: str
+    required: true
+    description: >
+      qPCR master mix name and catalogue number
+      (e.g. "TaqMan Fast Advanced Master Mix (Thermo, 4444557)").
+
+  - name: primer_assay_id
+    dtype: str
+    required: true
+    description: >
+      TaqMan assay ID or primer pair identifier
+      (e.g. Hs02786624_g1 for GAPDH). Enables reagent traceability.
+
+  # ── PROTOCOL TRACKING ───────────────────────────────────────────────────────
+
+  - name: protocol_version
+    dtype: str
+    required: false
+    description: >
+      Internal protocol document version. Cross-references the protocol
+      PDF/DOCX input to BOUNCER.
+
+  - name: rna_source_experiment_id
+    dtype: str
+    required: false
+    description: >
+      experiment_id of the upstream RNA-seq (or other omics) run from which
+      the RNA was derived. Enables cross-assay linkage in the feature store
+      (e.g. ENCODE_CELLLINE_2024). Leave blank if RNA was not sequenced.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# FEATURE STORE OUTPUT
+# Data objects registered to the DuckDB feature store after successful QC.
+# Stored per-experiment, versioned, with provenance linking back to this
+# schema contract version and the Ct export file hash.
+# ──────────────────────────────────────────────────────────────────────────────
+
+output_features:
+  - ct:                 # AnnData .X — mean Ct per target × sample_id
+                        # AnnData .layers['ct_sd'] — instrument-reported Ct SD per target × sample_id
+  - metadata:           # AnnData .obs  — sample_metadata (one row per sample_id)
+                        # AnnData .var  — assay_metadata (target name, type, primer assay ID)
+                        # AnnData .uns  — plate_metadata (plate_id, run_date, instrument, operator)

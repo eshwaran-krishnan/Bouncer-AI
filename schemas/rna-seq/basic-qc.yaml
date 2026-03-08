@@ -19,14 +19,18 @@ data_stage: raw_counts
 # A single sample failing a hard rule fails the entire dataset.
 # ──────────────────────────────────────────────────────────────────────────────
 
+  # Metric names follow the format: {multiqc_tool_section}_{metric_key}
+  # Bouncer prefixes each metric with its tool section name when parsing
+  # report_general_stats_data, so keys here must match exactly.
+
 multiqc:
 
-  # ── ALIGNMENT ───────────────────────────────────────────────────────────────
+  # ── ALIGNMENT (STAR) ─────────────────────────────────────────────────────────
 
-  - metric: STAR_percent_uniquely_mapped
+  - metric: star_uniquely_mapped_percent
     description: Fraction of reads mapping uniquely to the genome.
-    hard_min: 0.70
-    soft_min: 0.80
+    hard_min: 70.0
+    soft_min: 80.0
     severity_below_hard: hard
     severity_below_soft: soft
     rationale: >
@@ -34,28 +38,28 @@ multiqc:
       degradation. < 80 % warrants investigation but may be acceptable for
       difficult samples (e.g. FFPE, low-input).
 
-  - metric: STAR_percent_multimapped
-    description: Fraction of reads mapping to multiple loci.
-    hard_max: 0.20
-    soft_max: 0.10
+  - metric: star_multimapped_percent
+    description: Fraction of reads mapping to multiple loci (percent).
+    hard_max: 20.0
+    soft_max: 10.0
     severity_above_hard: hard
     severity_above_soft: soft
     rationale: >
       High multimapping inflates counts for repetitive regions and
       pseudogenes, biasing DE results.
 
-  - metric: STAR_percent_unmapped_mismatch
-    description: Fraction of reads unmapped due to too many mismatches.
-    hard_max: 0.10
-    soft_max: 0.05
+  - metric: star_unmapped_mismatches_percent
+    description: Fraction of reads unmapped due to too many mismatches (percent).
+    hard_max: 10.0
+    soft_max: 5.0
     severity_above_hard: hard
     severity_above_soft: soft
     rationale: >
       Elevated mismatch rates suggest wrong genome version or sample swap.
 
-  # ── READ COUNTS ─────────────────────────────────────────────────────────────
+  # ── READ COUNTS (STAR) ───────────────────────────────────────────────────────
 
-  - metric: STAR_total_reads
+  - metric: star_total_reads
     description: Total input reads before alignment.
     hard_min: 1000000
     soft_min: 5000000
@@ -66,9 +70,9 @@ multiqc:
       targeted panels or very abundant transcripts but warns for whole-
       transcriptome analysis.
 
-  # ── DUPLICATION ─────────────────────────────────────────────────────────────
+  # ── DUPLICATION (Picard) ─────────────────────────────────────────────────────
 
-  - metric: picard_percent_duplication
+  - metric: picard_PERCENT_DUPLICATION
     description: Fraction of reads marked as PCR/optical duplicates.
     hard_max: 0.80
     soft_max: 0.50
@@ -79,68 +83,31 @@ multiqc:
       longer reflect input RNA abundance. > 50 % warrants a note in
       downstream analysis and may indicate low-input libraries.
 
-  # ── RNA QUALITY & COMPOSITION ───────────────────────────────────────────────
+  # ── rRNA CONTAMINATION (custom_content) ──────────────────────────────────────
 
-  - metric: RSeQC_percent_mrna_bases
-    description: Fraction of bases overlapping annotated mRNA regions.
-    hard_min: 0.40
-    soft_min: 0.60
-    severity_below_hard: hard
-    severity_below_soft: soft
-    rationale: >
-      Low mRNA coverage indicates rRNA contamination, wrong strand protocol,
-      or highly degraded RNA.
-
-  - metric: RSeQC_percent_rrna
-    description: Fraction of reads mapping to ribosomal RNA loci.
-    hard_max: 0.50
-    soft_max: 0.20
+  - metric: custom_content_percent_rRNA
+    description: Fraction of reads mapping to ribosomal RNA loci (percent).
+    hard_max: 50.0
+    soft_max: 20.0
     severity_above_hard: hard
     severity_above_soft: soft
     rationale: >
       rRNA contamination dilutes mRNA signal. > 50 % makes the sample
       unusable for most DE purposes.
 
-  - metric: FastQC_percent_gc
-    description: Overall GC content of sequenced reads (fraction 0–1).
-    hard_min: 0.30
-    hard_max: 0.75
-    soft_min: 0.40
-    soft_max: 0.65
+  # ── GC CONTENT (FastQC) ──────────────────────────────────────────────────────
+
+  - metric: fastqc_raw_percent_gc
+    description: Overall GC content of sequenced reads (percent, 0–100).
+    hard_min: 30.0
+    hard_max: 75.0
+    soft_min: 40.0
+    soft_max: 65.0
     severity_outside_hard: hard
     severity_outside_soft: soft
     rationale: >
-      GC far outside species-typical range (human ~0.51) suggests
+      GC far outside species-typical range (human ~51 %) suggests
       contamination or index mis-assignment.
-
-  # ── STRANDEDNESS CONCORDANCE ────────────────────────────────────────────────
-
-  - metric: RSeQC_strandedness_sense_fraction
-    description: >
-      Fraction of reads in the sense direction as reported by RSeQC
-      infer_experiment. Used to confirm the strandedness declared in the
-      schema matches the data.
-    soft_min: 0.45    # unstranded: sense ~0.5 ± 0.05
-    soft_max: 0.55
-    severity_outside_soft: soft
-    rationale: >
-      A sense fraction far from 0.5 in a sample declared 'unstranded',
-      or far from 0 or 1 in a stranded library, indicates the wrong
-      strandedness setting was passed to the aligner / counter.
-
-  # ── 3′ BIAS ─────────────────────────────────────────────────────────────────
-
-  - metric: RSeQC_median_3prime_bias
-    description: >
-      Median 3′ bias from RSeQC read_distribution — ratio of 3′-end
-      coverage to body coverage. Values >> 1 indicate RNA degradation.
-    hard_max: 3.0
-    soft_max: 2.0
-    severity_above_hard: hard
-    severity_above_soft: soft
-    rationale: >
-      Strong 3′ bias from degraded RNA skews counts toward 3′ exons and
-      reduces reproducibility of transcript-level quantification.
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 2. COUNTS MATRIX CHECKS

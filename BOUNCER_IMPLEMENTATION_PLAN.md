@@ -842,3 +842,10 @@ Execute in this order — each phase builds on the previous:
 | Contracts | Versioned YAML | Human-readable, git-trackable, versionable |
 | Design checks | Warnings only | Never block, always inform |
 | Transforms | Built-in + custom | TPM/RPKM built in, user can add any function |
+
+
+
+OPEN QUESTIONS:
+
+ - Adding in support for all the EDS formats by OEMs
+ - 

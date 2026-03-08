@@ -48,14 +48,6 @@ bouncer = "bouncer.cli:app"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.uv]
-dev-dependencies = [
-    "pytest>=8.0.0",
-    "hypothesis>=6.100.0",
-    "pytest-asyncio>=0.23.0",
-    "modal>=0.62.0",
-]
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

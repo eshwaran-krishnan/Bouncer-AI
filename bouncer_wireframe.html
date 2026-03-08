@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BOUNCER — System Wireframe</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Courier New', monospace;
+      background: #f5f5f0;
+      color: #222;
+      padding: 32px;
+    }
+    h1 {
+      font-size: 22px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      border-bottom: 2px solid #222;
+      padding-bottom: 10px;
+      margin-bottom: 6px;
+    }
+    .subtitle {
+      font-size: 11px;
+      color: #666;
+      letter-spacing: 1px;
+      margin-bottom: 36px;
+    }
+
+    /* Section labels */
+    .section-label {
+      font-size: 10px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #999;
+      margin-bottom: 8px;
+    }
+
+    /* ─── MAIN FLOW ─────────────────────────────────────────── */
+    .main-flow {
+      display: flex;
+      align-items: flex-start;
+      gap: 0;
+      margin-bottom: 48px;
+    }
+
+    .flow-block {
+      background: #fff;
+      border: 2px solid #333;
+      padding: 14px 16px;
+      min-width: 150px;
+      flex-shrink: 0;
+    }
+    .flow-block .title {
+      font-size: 11px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 10px;
+      border-bottom: 1px solid #ccc;
+      padding-bottom: 6px;
+    }
+    .flow-block .item {
+      font-size: 10px;
+      color: #444;
+      padding: 3px 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .flow-block .item::before {
+      content: '·';
+      color: #999;
+    }
+    .flow-block.highlight {
+      background: #fafafa;
+      border-color: #111;
+    }
+
+    .arrow {
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      font-size: 20px;
+      color: #999;
+      flex-shrink: 0;
+      align-self: center;
+    }
+
+    /* ─── TWO COLUMN LAYOUT ─────────────────────────────────── */
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      margin-bottom: 40px;
+    }
+    .panel {
+      background: #fff;
+      border: 2px solid #333;
+      padding: 0;
+    }
+    .panel-header {
+      font-size: 10px;
+      font-weight: bold;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      background: #222;
+      color: #fff;
+      padding: 6px 12px;
+    }
+    .panel-body {
+      padding: 12px;
+    }
+
+    /* Terminal mockup */
+    .terminal {
+      background: #1a1a1a;
+      border: 2px solid #444;
+      padding: 14px;
+      font-size: 10px;
+      line-height: 1.7;
+      margin-bottom: 28px;
+    }
+    .terminal .prompt { color: #7ec8e3; }
+    .terminal .cmd    { color: #e0e0e0; }
+    .terminal .ok     { color: #7dcd7d; }
+    .terminal .warn   { color: #f0c040; }
+    .terminal .fail   { color: #e06060; }
+    .terminal .dim    { color: #666; }
+    .terminal .section { color: #c0a0e0; font-weight: bold; margin-top: 6px; }
+
+    /* Report card */
+    .report-card {
+      border: 2px solid #ccc;
+      background: #fafafa;
+      margin-bottom: 10px;
+    }
+    .report-card .rh {
+      font-size: 10px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 5px 10px;
+      border-bottom: 1px solid #ccc;
+    }
+    .report-card .rh.hard { background: #fde8e8; color: #c00; }
+    .report-card .rh.soft { background: #fef7e0; color: #b07000; }
+    .report-card .rh.warn { background: #e8f0fe; color: #2255cc; }
+    .report-card .rh.pass { background: #e8f8e8; color: #1a7a1a; }
+    .report-card .rb {
+      font-size: 9px;
+      color: #444;
+      padding: 6px 10px;
+      line-height: 1.6;
+    }
+
+    /* Feature store table */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 9px;
+    }
+    th {
+      background: #e0e0e0;
+      font-weight: bold;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 5px 8px;
+      text-align: left;
+      border-bottom: 2px solid #999;
+    }
+    td {
+      padding: 5px 8px;
+      border-bottom: 1px solid #ddd;
+      color: #333;
+    }
+    tr:hover td { background: #f5f5f5; }
+    .badge {
+      display: inline-block;
+      font-size: 8px;
+      padding: 1px 5px;
+      border-radius: 2px;
+      font-weight: bold;
+    }
+    .badge.passed { background: #d4f0d4; color: #1a6a1a; border: 1px solid #9dc99d; }
+    .badge.warn   { background: #fef3cc; color: #8a6000; border: 1px solid #e0c060; }
+
+    /* Agent graph */
+    .agent-graph {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+      padding: 16px;
+    }
+    .node {
+      background: #fff;
+      border: 2px solid #555;
+      padding: 8px 20px;
+      font-size: 10px;
+      font-weight: bold;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      text-align: center;
+      min-width: 160px;
+    }
+    .node.entry { border-color: #111; background: #111; color: #fff; }
+    .node.exit  { border-color: #111; background: #111; color: #fff; }
+    .node-arrow {
+      font-size: 16px;
+      color: #888;
+      line-height: 1.2;
+    }
+    .node-desc {
+      font-size: 9px;
+      color: #888;
+      text-align: center;
+      margin-top: 2px;
+      margin-bottom: 2px;
+    }
+
+    /* YAML contract block */
+    .yaml-block {
+      background: #f4f4f0;
+      border: 1px solid #ccc;
+      border-left: 3px solid #888;
+      font-size: 9px;
+      padding: 10px;
+      line-height: 1.7;
+      color: #333;
+    }
+    .yaml-block .key   { color: #0055aa; }
+    .yaml-block .val   { color: #aa3300; }
+    .yaml-block .comment { color: #888; }
+
+    /* Pull API */
+    .code-block {
+      background: #1e1e2e;
+      border: 1px solid #444;
+      padding: 12px;
+      font-size: 9px;
+      line-height: 1.7;
+      color: #cdd6f4;
+    }
+    .code-block .kw  { color: #89b4fa; }
+    .code-block .fn  { color: #a6e3a1; }
+    .code-block .str { color: #f38ba8; }
+    .code-block .cmt { color: #585b70; }
+    .code-block .var { color: #fab387; }
+
+    /* Three-section divider */
+    .divider {
+      border: none;
+      border-top: 1px dashed #ccc;
+      margin: 36px 0;
+    }
+
+    .footer {
+      font-size: 9px;
+      color: #bbb;
+      letter-spacing: 1px;
+      margin-top: 40px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>BOUNCER</h1>
+  <div class="subtitle">Biological Data Quality Contract Layer — System Wireframe</div>
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- SECTION 1: MAIN FLOW                                       -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="section-label">1 — End-to-End Data Flow</div>
+
+  <div class="main-flow">
+
+    <div class="flow-block">
+      <div class="title">Input Files</div>
+      <div class="item">counts.tsv</div>
+      <div class="item">samplesheet.csv</div>
+      <div class="item">multiqc_data.json</div>
+      <div class="item">protocol.pdf</div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="flow-block">
+      <div class="title">YAML Contracts</div>
+      <div class="item">schema.yaml</div>
+      <div class="item">qc.yaml</div>
+      <div class="item">version: "1.0.0"</div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="flow-block highlight">
+      <div class="title">BOUNCER Agent</div>
+      <div class="item">Classify</div>
+      <div class="item">Extract</div>
+      <div class="item">Tag</div>
+      <div class="item">Cross-Reference</div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="flow-block">
+      <div class="title">QC Report</div>
+      <div class="item">Schema checks</div>
+      <div class="item">MultiQC metrics</div>
+      <div class="item">Design warnings</div>
+      <div class="item">PASS / FAIL</div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="flow-block">
+      <div class="title">Feature Store</div>
+      <div class="item">AnnData .h5ad</div>
+      <div class="item">DuckDB metadata</div>
+      <div class="item">Provenance chain</div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="flow-block">
+      <div class="title">Pull API</div>
+      <div class="item">bouncer.pull_data()</div>
+      <div class="item">Filter by assay</div>
+      <div class="item">Filter by stage</div>
+      <div class="item">+ Transforms</div>
+    </div>
+
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- SECTION 2: AGENT GRAPH + CONTRACT YAML                     -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="two-col" style="margin-bottom: 40px;">
+
+    <!-- Agent Graph -->
+    <div>
+      <div class="section-label">2 — LangGraph Agent Pipeline</div>
+      <div class="panel">
+        <div class="panel-header">bouncer/agent/graph.py</div>
+        <div class="panel-body">
+          <div class="agent-graph">
+
+            <div class="node entry">START</div>
+            <div class="node-arrow">↓</div>
+
+            <div class="node">Classify Files</div>
+            <div class="node-desc">peek_file tool · LLM classification</div>
+            <div class="node-arrow">↓</div>
+
+            <div class="node">Extract Data</div>
+            <div class="node-desc">read_csv · read_json · read_pdf</div>
+            <div class="node-arrow">↓</div>
+
+            <div class="node">Assign Tags</div>
+            <div class="node-desc">assay · organism · conditions</div>
+            <div class="node-arrow">↓</div>
+
+            <div class="node">Cross Reference</div>
+            <div class="node-desc">Schema · MultiQC · Design checks</div>
+            <div class="node-arrow">↓</div>
+
+            <div class="node">Generate Report</div>
+            <div class="node-desc">Findings → Rich terminal output</div>
+            <div class="node-arrow">↓</div>
+
+            <div class="node exit">END</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- YAML Contracts -->
+    <div>
+      <div class="section-label">3 — YAML Contract Structure</div>
+      <div class="panel" style="margin-bottom: 16px;">
+        <div class="panel-header">rna-seq-schema.yaml</div>
+        <div class="panel-body">
+          <div class="yaml-block">
+<span class="key">version</span>: <span class="val">"1.0.0"</span>    <span class="comment"># required</span>
+<span class="key">assay_type</span>: <span class="val">rna-seq</span>
+<span class="key">data_stage</span>: <span class="val">raw_counts</span>
+<span class="key">index_column</span>: <span class="val">gene_id</span>
+<span class="key">sample_columns</span>: <span class="val">from_samplesheet</span>
+
+<span class="key">metadata_columns</span>:
+  - <span class="key">name</span>: <span class="val">sample_id</span>     <span class="key">required</span>: <span class="val">true</span>
+  - <span class="key">name</span>: <span class="val">condition</span>     <span class="key">required</span>: <span class="val">true</span>
+  - <span class="key">name</span>: <span class="val">organism</span>      <span class="key">required</span>: <span class="val">true</span>
+  - <span class="key">name</span>: <span class="val">batch</span>         <span class="key">required</span>: <span class="val">false</span>
+
+<span class="key">output_features</span>:
+  - <span class="val">counts_matrix</span>
+  - <span class="val">sample_metadata</span>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">rna-seq-qc.yaml</div>
+        <div class="panel-body">
+          <div class="yaml-block">
+<span class="key">version</span>: <span class="val">"1.0.0"</span>
+<span class="key">pipeline</span>: <span class="val">nf-core/rnaseq</span>
+<span class="key">data_stage</span>: <span class="val">raw_counts</span>
+
+<span class="key">multiqc</span>:
+  - <span class="key">metric</span>: <span class="val">STAR_percent_uniquely_mapped</span>
+    <span class="key">min</span>: <span class="val">0.75</span>    <span class="key">severity</span>: <span class="val">hard</span>
+  - <span class="key">metric</span>: <span class="val">FastQC_percent_duplicates</span>
+    <span class="key">max</span>: <span class="val">0.50</span>    <span class="key">severity</span>: <span class="val">hard</span>
+
+<span class="key">design</span>:
+  - <span class="key">check</span>: <span class="val">min_replicates_per_condition</span>
+    <span class="key">value</span>: <span class="val">3</span>    <span class="key">severity</span>: <span class="val">warning</span>
+  - <span class="key">check</span>: <span class="val">batch_not_confounded_with_condition</span>
+    <span class="key">severity</span>: <span class="val">warning</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- SECTION 3: QC REPORT OUTPUT                                -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="two-col">
+
+    <div>
+      <div class="section-label">4 — CLI Usage</div>
+      <div class="terminal">
+<span class="prompt">$</span> <span class="cmd">bouncer run \</span>
+  <span class="cmd">results/multiqc_data.json \</span>
+  <span class="cmd">results/counts.tsv \</span>
+  <span class="cmd">samplesheet.csv protocol.pdf \</span>
+  <span class="cmd">--schema contracts/rna-seq-schema.yaml \</span>
+  <span class="cmd">--qc    contracts/rna-seq-qc.yaml \</span>
+  <span class="cmd">--mode  strict</span>
+&nbsp;
+<span class="dim">╔══════════════════════════════════════╗</span>
+<span class="dim">║</span>  <span class="cmd">BOUNCER v0.1.0  ·  RNA-seq QC Run</span>   <span class="dim">║</span>
+<span class="dim">╚══════════════════════════════════════╝</span>
+&nbsp;
+<span class="section">[ SCHEMA ]</span>
+<span class="ok"> ✓  sample_id        present · dtype=str</span>
+<span class="ok"> ✓  condition        present · dtype=category</span>
+<span class="fail"> ✗  replicate        MISSING — required column</span>
+<span class="ok"> ✓  sample IDs match counts matrix columns</span>
+&nbsp;
+<span class="section">[ MULTIQC ]</span>
+<span class="ok"> ✓  STAR_uniquely_mapped     0.82  ≥ 0.75</span>
+<span class="fail"> ✗  STAR_uniquely_mapped     0.61  &lt; 0.75  [sample_04]</span>
+<span class="ok"> ✓  FastQC_duplicates        0.31  ≤ 0.50</span>
+&nbsp;
+<span class="section">[ DESIGN ]</span>
+<span class="warn"> ⚠  condition 'treated' has 2 replicates (min: 3)</span>
+<span class="warn"> ⚠  batch perfectly correlated with condition</span>
+<span class="ok"> ✓  control condition present (found: 'untreated')</span>
+&nbsp;
+<span class="fail">━━━  RESULT: FAILED  (2 hard failures)  ━━━</span>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">5 — QC Report Findings (Grouped)</div>
+
+      <div class="report-card">
+        <div class="rh hard">✗ Hard Failures (2)</div>
+        <div class="rb">
+          <b>[schema]</b> replicate — required column missing from samplesheet.csv<br/>
+          Fix: add 'replicate' column before rerunning<br/><br/>
+          <b>[multiqc]</b> STAR_percent_uniquely_mapped = 0.61 &lt; 0.75 in sample_04<br/>
+          Fix: investigate alignment failure for sample_04
+        </div>
+      </div>
+
+      <div class="report-card">
+        <div class="rh soft">~ Soft Warnings (0)</div>
+        <div class="rb">No soft warnings raised.</div>
+      </div>
+
+      <div class="report-card">
+        <div class="rh warn">⚠ Design Warnings (2)</div>
+        <div class="rb">
+          <b>[design]</b> condition 'treated' has 2 replicates — min recommended: 3<br/><br/>
+          <b>[design]</b> batch column is perfectly correlated with condition.<br/>
+          Consider rebalancing your experimental design.
+        </div>
+      </div>
+
+      <div class="report-card">
+        <div class="rh pass">✓ Passed (5)</div>
+        <div class="rb">
+          sample_id, condition, organism — present and typed correctly<br/>
+          sample IDs match counts matrix · control condition present
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- SECTION 4: FEATURE STORE                                   -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="section-label">6 — Feature Store (DuckDB + h5ad)</div>
+
+  <div class="two-col">
+
+    <div>
+      <div class="panel">
+        <div class="panel-header">bouncer list-features</div>
+        <div class="panel-body" style="overflow-x:auto;">
+          <table>
+            <tr>
+              <th>ID</th>
+              <th>Assay</th>
+              <th>Stage</th>
+              <th>Organism</th>
+              <th>Samples</th>
+              <th>Schema</th>
+              <th>Status</th>
+              <th>Created</th>
+            </tr>
+            <tr>
+              <td>a1b2-cd3e</td>
+              <td>rna-seq</td>
+              <td>raw_counts</td>
+              <td>human</td>
+              <td>12</td>
+              <td>1.0.0</td>
+              <td><span class="badge passed">PASSED</span></td>
+              <td>2026-03-07</td>
+            </tr>
+            <tr>
+              <td>f4g5-hi6j</td>
+              <td>rna-seq</td>
+              <td>tpm</td>
+              <td>human</td>
+              <td>12</td>
+              <td>1.0.0</td>
+              <td><span class="badge warn">WARN</span></td>
+              <td>2026-03-07</td>
+            </tr>
+            <tr>
+              <td>k7l8-mn9o</td>
+              <td>rna-seq</td>
+              <td>raw_counts</td>
+              <td>mouse</td>
+              <td>6</td>
+              <td>1.0.0</td>
+              <td><span class="badge passed">PASSED</span></td>
+              <td>2026-03-06</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+
+      <div style="margin-top: 16px;">
+        <div class="panel">
+          <div class="panel-header">Provenance Chain</div>
+          <div class="panel-body">
+            <div style="font-size: 9px; line-height: 1.9; color: #333;">
+              <div style="display:flex; align-items:center; gap: 8px;">
+                <span style="background:#e0e8ff; border:1px solid #99b; padding:2px 6px; font-size:8px; letter-spacing:1px;">a1b2-cd3e</span>
+                <span>raw_counts · schema v1.0.0 · qc v1.0.0</span>
+              </div>
+              <div style="padding-left: 16px; color: #aaa;">↓ to_tpm(gene_lengths) — 2026-03-07</div>
+              <div style="display:flex; align-items:center; gap: 8px;">
+                <span style="background:#e0ffe0; border:1px solid #9b9; padding:2px 6px; font-size:8px; letter-spacing:1px;">f4g5-hi6j</span>
+                <span>tpm · schema v1.0.0 · qc v1.0.0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pull API -->
+    <div>
+      <div class="section-label" style="margin-top:0;">7 — Pull API + Transforms</div>
+      <div class="panel">
+        <div class="panel-header">bouncer.pull_data() + transforms</div>
+        <div class="panel-body">
+          <div class="code-block">
+<span class="kw">import</span> bouncer
+&nbsp;
+<span class="cmt"># Pull raw RNA-seq for a specific treatment</span>
+<span class="var">adata</span> = bouncer.<span class="fn">pull_data</span>(
+    assay=[<span class="str">'rna-seq'</span>],
+    treatment=[<span class="str">'ABC'</span>],
+    data_stage=<span class="str">'raw_counts'</span>,
+    qc_status=<span class="str">'passed'</span>,
+)
+&nbsp;
+<span class="cmt"># Inspect provenance</span>
+<span class="fn">print</span>(<span class="var">adata</span>.uns[<span class="str">'provenance'</span>])
+<span class="cmt"># → [{stage: 'raw_counts', schema_version: '1.0.0', ...</span>
+&nbsp;
+<span class="cmt"># Transform to TPM</span>
+<span class="var">adata_tpm</span> = bouncer.transforms.<span class="fn">to_tpm</span>(
+    <span class="var">adata</span>, gene_lengths=<span class="var">gene_lengths_df</span>
+)
+&nbsp;
+<span class="cmt"># Re-register (runs QC again on TPM data)</span>
+bouncer.<span class="fn">register</span>(
+    <span class="var">adata_tpm</span>,
+    schema=<span class="str">'contracts/rna-seq-tpm-schema.yaml'</span>,
+    mode=<span class="str">'strict'</span>,
+)
+&nbsp;
+<span class="cmt"># List all features in store</span>
+<span class="var">df</span> = bouncer.<span class="fn">list_features</span>(assay=<span class="str">'rna-seq'</span>)
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <!-- SECTION 5: KEY DESIGN DECISIONS                            -->
+  <!-- ══════════════════════════════════════════════════════════ -->
+  <div class="section-label">8 — Key Design Decisions</div>
+
+  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 40px;">
+
+    <div class="flow-block">
+      <div class="title">Agent</div>
+      <div class="item">LangGraph</div>
+      <div class="item">Stateful graph</div>
+      <div class="item">Loop + retry</div>
+      <div class="item">Claude LLM</div>
+    </div>
+
+    <div class="flow-block">
+      <div class="title">Validation</div>
+      <div class="item">Pydantic v2</div>
+      <div class="item">Pandera schemas</div>
+      <div class="item">Versioned YAML</div>
+      <div class="item">Hard / Soft / Warn</div>
+    </div>
+
+    <div class="flow-block">
+      <div class="title">Store</div>
+      <div class="item">DuckDB metadata</div>
+      <div class="item">h5ad data</div>
+      <div class="item">Full provenance</div>
+      <div class="item">SQL queryable</div>
+    </div>
+
+    <div class="flow-block">
+      <div class="title">CLI</div>
+      <div class="item">Typer + Rich</div>
+      <div class="item">run · register</div>
+      <div class="item">list-features</div>
+      <div class="item">pull</div>
+    </div>
+
+  </div>
+
+  <div class="footer">BOUNCER — Wireframe v1 · RNA-seq QC Contract Layer</div>
+
+</body>
+</html>

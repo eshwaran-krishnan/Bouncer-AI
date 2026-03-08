@@ -34,9 +34,21 @@ if [[ "$PY_MAJOR" -lt 3 || ("$PY_MAJOR" -eq 3 && "$PY_MINOR" -lt 11) ]]; then
 fi
 success "Python $PY_VERSION found"
 
-# ── 2. Install bouncer package ────────────────────────────────────────────────
+# ── 2. Install uv if missing ──────────────────────────────────────────────────
+if ! command -v uv &>/dev/null; then
+    info "Installing uv (fast Python package manager)..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    # uv installs to ~/.local/bin — add to PATH for this session
+    export PATH="$HOME/.local/bin:$PATH"
+    success "uv installed"
+else
+    success "uv $(uv --version) already installed"
+fi
+
+# ── 3. Install bouncer package ────────────────────────────────────────────────
 info "Installing bouncer..."
-pip3 install -e "."
+uv pip install -e "." --system 2>/dev/null \
+    || uv pip install -e "."
 success "bouncer installed"
 
 # ── 4. Verify the CLI is available ───────────────────────────────────────────

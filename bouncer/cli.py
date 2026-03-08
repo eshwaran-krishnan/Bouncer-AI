@@ -1,15 +1,19 @@
 """
 bouncer/cli.py — Typer CLI (API-client mode).
 
-Set your deployed Modal endpoint before running:
-    export BOUNCER_API_URL=https://your-org--bouncer-qc-api.modal.run
+Quickstart — use a bundled schema name:
+    bouncer run counts.tsv samplesheet.csv multiqc.json \\
+        --schema rna-seq/basic
 
-Or pass it inline:
-    bouncer run file1 file2 \\
+Or pass local schema files explicitly:
+    bouncer run counts.tsv samplesheet.csv \\
         --assay   rna-seq \\
         --schema  schemas/rna-seq/basic-schema.yaml \\
-        --qc      schemas/rna-seq/basic-qc.yaml \\
-        --api-url https://your-org--bouncer-qc-api.modal.run
+        --qc      schemas/rna-seq/basic-qc.yaml
+
+Set your API URL:
+    export BOUNCER_API_URL=https://your-org--bouncer-api.modal.run
+    bouncer ping   # verify the connection
 """
 
 from __future__ import annotations
@@ -24,11 +28,17 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-app     = typer.Typer(help="Bouncer — biological data quality contract layer.")
+app     = typer.Typer(
+    help="Bouncer — biological data quality contract layer.",
+    no_args_is_help=True,
+)
 console = Console()
 
 _POLL_INTERVAL = 3
 _POLL_MAX      = 200  # ~10 min ceiling
+
+# Bundled schemas live at <project_root>/schemas/ (sibling of the bouncer/ package)
+_SCHEMAS_ROOT = Path(__file__).parent.parent / "schemas"
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -37,11 +47,71 @@ def _resolve_api(api_url: str) -> str:
     url = api_url or os.environ.get("BOUNCER_API_URL", "")
     if not url:
         console.print(
-            "[red]No API URL configured.[/red]\n"
-            "Set [bold]BOUNCER_API_URL[/bold] or pass [bold]--api-url[/bold]."
+            "[red]No API URL.[/red]  Set [bold]BOUNCER_API_URL[/bold] or pass [bold]--api-url[/bold].\n"
+            "[dim]Example: export BOUNCER_API_URL=https://your-org--bouncer-api.modal.run[/dim]"
         )
         raise typer.Exit(1)
     return url.rstrip("/")
+
+
+def _resolve_schema(
+    schema_arg: str,
+    qc_arg: Optional[str],
+) -> tuple[Path, Path, Optional[str]]:
+    """
+    Resolve --schema and --qc to concrete file paths.
+
+    Accepts two formats for --schema:
+      • A schema name:  "rna-seq/basic"  → resolves from bundled schemas dir
+      • A file path:    "path/to/basic-schema.yaml"  → used as-is
+
+    Returns (schema_path, qc_path, inferred_assay_or_None).
+    inferred_assay is set only when a schema name was used.
+    """
+    p = Path(schema_arg)
+
+    # ── File path mode ──────────────────────────────────────────────────────
+    if p.suffix in (".yaml", ".yml") or p.exists():
+        schema_path = p
+        if qc_arg:
+            return schema_path, Path(qc_arg), None
+        # Try to infer sibling QC file: basic-schema.yaml → basic-qc.yaml
+        inferred_qc = p.parent / p.name.replace("-schema", "-qc")
+        if inferred_qc.exists():
+            console.print(f"[dim]Using inferred QC contract: {inferred_qc.name}[/dim]")
+            return schema_path, inferred_qc, None
+        console.print(
+            f"[red]--qc is required when --schema is a file path "
+            f"and no sibling *-qc.yaml was found next to {p.name}.[/red]"
+        )
+        raise typer.Exit(1)
+
+    # ── Schema name mode: "rna-seq/basic" ──────────────────────────────────
+    parts = schema_arg.split("/")
+    if len(parts) != 2 or not all(parts):
+        console.print(
+            f"[red]Unrecognised --schema value '[bold]{schema_arg}[/bold]'.[/red]\n"
+            "Use a bundled name like [cyan]rna-seq/basic[/cyan] "
+            "or a local file path ending in [cyan].yaml[/cyan]."
+        )
+        raise typer.Exit(1)
+
+    assay_dir, schema_base = parts
+    schema_path = _SCHEMAS_ROOT / assay_dir / f"{schema_base}-schema.yaml"
+    qc_path     = _SCHEMAS_ROOT / assay_dir / f"{schema_base}-qc.yaml"
+
+    missing = [str(f) for f in (schema_path, qc_path) if not f.exists()]
+    if missing:
+        console.print(
+            f"[red]Bundled schema '[bold]{schema_arg}[/bold]' not found.[/red]\n"
+            + "\n".join(f"  Missing: {m}" for m in missing)
+        )
+        raise typer.Exit(1)
+
+    if qc_arg:
+        qc_path = Path(qc_arg)   # explicit override
+
+    return schema_path, qc_path, assay_dir
 
 
 def _mime(path: Path) -> str:
@@ -250,30 +320,50 @@ def _findings_section(findings: list[dict]) -> list[str]:
 
 @app.command()
 def run(
-    inputs:     list[str] = typer.Argument(..., help="Local input files to upload"),
-    assay:      str       = typer.Option(..., "--assay",  "-a", help="rna-seq | flow-cytometry | qpcr"),
-    schema:     str       = typer.Option(..., "--schema", "-s", help="Path to schema YAML contract"),
-    qc:         str       = typer.Option(..., "--qc",     "-q", help="Path to QC YAML contract"),
-    mode:       str       = typer.Option("strict", "--mode", "-m", help="strict | permissive"),
-    report_out: str       = typer.Option("", "--report-out", "-r",
-                                         help="Save HTML report to this path (default: bouncer_report_<timestamp>.html)"),
-    api_url:    str       = typer.Option("", "--api-url", envvar="BOUNCER_API_URL",
-                                         help="Bouncer API base URL"),
+    inputs:     list[str]      = typer.Argument(..., help="Local input files to upload"),
+    schema:     str            = typer.Option(...,  "--schema", "-s",
+                                              help="Bundled schema name (rna-seq/basic) OR local path to schema YAML"),
+    assay:      Optional[str]  = typer.Option(None, "--assay",  "-a",
+                                              help="rna-seq | flow-cytometry | qpcr  (inferred from schema name if omitted)"),
+    qc:         Optional[str]  = typer.Option(None, "--qc",     "-q",
+                                              help="Local path to QC YAML  (inferred from schema if omitted)"),
+    mode:       str            = typer.Option("strict", "--mode", "-m", help="strict | permissive"),
+    report_out: str            = typer.Option("", "--report-out", "-r",
+                                              help="Save HTML report to this path (default: bouncer_report_<timestamp>.html)"),
+    api_url:    str            = typer.Option("", "--api-url", envvar="BOUNCER_API_URL",
+                                              help="Bouncer API base URL"),
 ):
     """
-    Upload files to the Bouncer API and stream back QC results.
+    Run QC on pipeline output files.
 
-    The schema and QC YAMLs you specify are ALWAYS uploaded and used by
-    the container — no bundled defaults are ever substituted.
+    Simplest usage — let Bouncer resolve everything from the schema name:
+
+        bouncer run counts.tsv samplesheet.csv multiqc.json --schema rna-seq/basic
+
+    Or supply local schema files explicitly:
+
+        bouncer run counts.tsv samplesheet.csv \\
+            --schema schemas/rna-seq/basic-schema.yaml \\
+            --qc     schemas/rna-seq/basic-qc.yaml \\
+            --assay  rna-seq
     """
     import httpx
 
     base = _resolve_api(api_url)
 
-    # Validate all local paths
-    schema_path = Path(schema)
-    qc_path     = Path(qc)
-    data_paths  = [Path(p) for p in inputs]
+    # Resolve schema → concrete file paths (and maybe infer assay)
+    schema_path, qc_path, inferred_assay = _resolve_schema(schema, qc)
+
+    # Resolve assay: explicit flag wins; fall back to inferred; error if neither
+    resolved_assay = assay or inferred_assay
+    if not resolved_assay:
+        console.print(
+            "[red]--assay is required when --schema is a file path.[/red]\n"
+            "[dim]Example: --assay rna-seq[/dim]"
+        )
+        raise typer.Exit(1)
+
+    data_paths = [Path(p) for p in inputs]
 
     missing = [str(p) for p in [schema_path, qc_path, *data_paths] if not p.exists()]
     if missing:
@@ -283,7 +373,7 @@ def run(
 
     console.print(
         f"[bold]Bouncer QC[/bold]  "
-        f"assay=[cyan]{assay}[/cyan]  "
+        f"assay=[cyan]{resolved_assay}[/cyan]  "
         f"schema=[cyan]{schema_path.name}[/cyan]  "
         f"qc=[cyan]{qc_path.name}[/cyan]  "
         f"mode=[cyan]{mode}[/cyan]"
@@ -302,7 +392,7 @@ def run(
         with httpx.Client(timeout=120) as client:
             resp = client.post(
                 f"{base}/qc/run",
-                data={"assay_type": assay, "mode": mode},
+                data={"assay_type": resolved_assay, "mode": mode},
                 files=(
                     [("files", fh) for fh in data_handles]
                     + [("schema_file", schema_handle), ("qc_file", qc_handle)]
@@ -338,7 +428,7 @@ def run(
         result=result,
         schema=schema_path,
         qc=qc_path,
-        assay=assay,
+        assay=resolved_assay,
         mode=mode,
         output=report_path,
     )
@@ -408,6 +498,25 @@ def pull(
 
     Path(output).write_bytes(resp.content)
     console.print(f"[green]Saved → {output}[/green]  ({len(resp.content):,} bytes)")
+
+
+@app.command()
+def ping(
+    api_url: str = typer.Option("", "--api-url", envvar="BOUNCER_API_URL",
+                                help="Bouncer API base URL"),
+):
+    """Check that the Bouncer API is reachable."""
+    import httpx
+
+    base = _resolve_api(api_url)
+    console.print(f"Pinging [dim]{base}[/dim] ...")
+    try:
+        resp = httpx.get(f"{base}/health", timeout=15)
+        resp.raise_for_status()
+        console.print(f"[green]OK[/green]  {resp.json()}")
+    except httpx.HTTPError as exc:
+        console.print(f"[red]Unreachable:[/red] {exc}")
+        raise typer.Exit(1)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,337 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# BOUNCER — RNA-seq QC Contract (Basic)
+# Defines thresholds for MultiQC metrics, counts matrix integrity, and
+# experimental design. Severity levels:
+#
+#   hard    → blocks registration; data cannot enter the feature store
+#   soft    → flagged in report but does not block; logged in .uns['warnings']
+#   warning → design / metadata advisory; never blocks; always carried forward
+# ──────────────────────────────────────────────────────────────────────────────
+
+version: "1.0.0"
+assay_type: rna-seq
+pipeline: nf-core/rnaseq
+data_stage: raw_counts
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 1. MULTIQC METRICS
+# Checked per sample against MultiQC general_stats output.
+# A single sample failing a hard rule fails the entire dataset.
+# ──────────────────────────────────────────────────────────────────────────────
+
+multiqc:
+
+  # ── ALIGNMENT ───────────────────────────────────────────────────────────────
+
+  - metric: STAR_percent_uniquely_mapped
+    description: Fraction of reads mapping uniquely to the genome.
+    hard_min: 0.70
+    soft_min: 0.80
+    severity_below_hard: hard
+    severity_below_soft: soft
+    rationale: >
+      < 70 % indicates wrong genome, heavy contamination, or severe RNA
+      degradation. < 80 % warrants investigation but may be acceptable for
+      difficult samples (e.g. FFPE, low-input).
+
+  - metric: STAR_percent_multimapped
+    description: Fraction of reads mapping to multiple loci.
+    hard_max: 0.20
+    soft_max: 0.10
+    severity_above_hard: hard
+    severity_above_soft: soft
+    rationale: >
+      High multimapping inflates counts for repetitive regions and
+      pseudogenes, biasing DE results.
+
+  - metric: STAR_percent_unmapped_mismatch
+    description: Fraction of reads unmapped due to too many mismatches.
+    hard_max: 0.10
+    soft_max: 0.05
+    severity_above_hard: hard
+    severity_above_soft: soft
+    rationale: >
+      Elevated mismatch rates suggest wrong genome version or sample swap.
+
+  # ── READ COUNTS ─────────────────────────────────────────────────────────────
+
+  - metric: STAR_total_reads
+    description: Total input reads before alignment.
+    hard_min: 1000000
+    soft_min: 5000000
+    severity_below_hard: hard
+    severity_below_soft: soft
+    rationale: >
+      < 1 M reads is insufficient for reliable DE. < 5 M is acceptable for
+      targeted panels or very abundant transcripts but warns for whole-
+      transcriptome analysis.
+
+  # ── DUPLICATION ─────────────────────────────────────────────────────────────
+
+  - metric: picard_percent_duplication
+    description: Fraction of reads marked as PCR/optical duplicates.
+    hard_max: 0.80
+    soft_max: 0.50
+    severity_above_hard: hard
+    severity_above_soft: soft
+    rationale: >
+      > 80 % duplication means the library is nearly exhausted; counts no
+      longer reflect input RNA abundance. > 50 % warrants a note in
+      downstream analysis and may indicate low-input libraries.
+
+  # ── RNA QUALITY & COMPOSITION ───────────────────────────────────────────────
+
+  - metric: RSeQC_percent_mrna_bases
+    description: Fraction of bases overlapping annotated mRNA regions.
+    hard_min: 0.40
+    soft_min: 0.60
+    severity_below_hard: hard
+    severity_below_soft: soft
+    rationale: >
+      Low mRNA coverage indicates rRNA contamination, wrong strand protocol,
+      or highly degraded RNA.
+
+  - metric: RSeQC_percent_rrna
+    description: Fraction of reads mapping to ribosomal RNA loci.
+    hard_max: 0.50
+    soft_max: 0.20
+    severity_above_hard: hard
+    severity_above_soft: soft
+    rationale: >
+      rRNA contamination dilutes mRNA signal. > 50 % makes the sample
+      unusable for most DE purposes.
+
+  - metric: FastQC_percent_gc
+    description: Overall GC content of sequenced reads (fraction 0–1).
+    hard_min: 0.30
+    hard_max: 0.75
+    soft_min: 0.40
+    soft_max: 0.65
+    severity_outside_hard: hard
+    severity_outside_soft: soft
+    rationale: >
+      GC far outside species-typical range (human ~0.51) suggests
+      contamination or index mis-assignment.
+
+  # ── STRANDEDNESS CONCORDANCE ────────────────────────────────────────────────
+
+  - metric: RSeQC_strandedness_sense_fraction
+    description: >
+      Fraction of reads in the sense direction as reported by RSeQC
+      infer_experiment. Used to confirm the strandedness declared in the
+      schema matches the data.
+    soft_min: 0.45    # unstranded: sense ~0.5 ± 0.05
+    soft_max: 0.55
+    severity_outside_soft: soft
+    rationale: >
+      A sense fraction far from 0.5 in a sample declared 'unstranded',
+      or far from 0 or 1 in a stranded library, indicates the wrong
+      strandedness setting was passed to the aligner / counter.
+
+  # ── 3′ BIAS ─────────────────────────────────────────────────────────────────
+
+  - metric: RSeQC_median_3prime_bias
+    description: >
+      Median 3′ bias from RSeQC read_distribution — ratio of 3′-end
+      coverage to body coverage. Values >> 1 indicate RNA degradation.
+    hard_max: 3.0
+    soft_max: 2.0
+    severity_above_hard: hard
+    severity_above_soft: soft
+    rationale: >
+      Strong 3′ bias from degraded RNA skews counts toward 3′ exons and
+      reduces reproducibility of transcript-level quantification.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 2. COUNTS MATRIX CHECKS
+# Applied to the raw counts matrix (genes × samples) after alignment.
+# ──────────────────────────────────────────────────────────────────────────────
+
+counts_matrix:
+
+  - check: no_negative_values
+    description: All count values must be non-negative integers.
+    severity: hard
+    rationale: Negative counts are impossible for raw read counts and
+               indicate a processing error.
+
+  - check: no_all_zero_samples
+    description: No sample (column) may have all-zero counts.
+    severity: hard
+    rationale: An all-zero sample indicates alignment failure or a wrong
+               sample identifier mapping.
+
+  - check: no_all_zero_genes
+    description: Remove or flag genes (rows) with zero counts across all samples.
+    severity: soft
+    rationale: >
+      All-zero genes inflate the gene universe, slow DE tools, and can
+      bias normalisation. They should be filtered before modelling.
+
+  - check: min_expressed_genes
+    description: >
+      Minimum number of genes with count > 0 in at least one sample.
+    hard_min: 1000
+    soft_min: 5000
+    severity_below_hard: hard
+    severity_below_soft: soft
+    rationale: >
+      < 1 000 expressed genes indicates severe alignment or quantification
+      failure. < 5 000 is atypical for whole-transcriptome RNA-seq and may
+      reflect a targeted panel — should be documented.
+
+  - check: min_library_size
+    description: Minimum total count per sample (column sum).
+    hard_min: 500000
+    soft_min: 2000000
+    severity_below_hard: hard
+    severity_below_soft: soft
+    rationale: >
+      Very low library sizes after alignment indicate sequencing depth
+      problems. This is a counts-level confirmation of the read-level
+      check in MultiQC.
+
+  - check: no_duplicate_sample_ids
+    description: Column headers in the counts matrix must be unique.
+    severity: hard
+    rationale: Duplicate sample IDs cause silent data corruption on merge.
+
+  - check: sample_ids_match_samplesheet
+    description: >
+      Every column header in the counts matrix must have a matching
+      sample_id in the samplesheet, and vice versa.
+    severity: hard
+    rationale: Mismatch means metadata will be wrong for at least one
+               sample — a critical error for any downstream analysis.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 3. METADATA COMPLETENESS CHECKS
+# Checks on the samplesheet columns declared in the schema.
+# Complements schema dtype/required enforcement with value-level checks.
+# ──────────────────────────────────────────────────────────────────────────────
+
+metadata:
+
+  - check: no_empty_required_columns
+    description: >
+      Columns marked required: true in the schema must have no
+      null, empty string, or whitespace-only values.
+    severity: hard
+    rationale: Missing values in required columns break DE model matrices
+               and produce silent NaN-propagation errors in downstream tools.
+
+  - check: condition_values_consistent
+    description: >
+      Condition labels must be consistent — no near-duplicates from
+      typos or capitalisation differences (e.g. 'Control' vs 'control'
+      vs 'CONTROL').
+    severity: soft
+    rationale: Inconsistent labels cause samples to be silently split into
+               spurious groups during DE analysis.
+
+  - check: replicate_is_integer
+    description: replicate column must be a positive integer with no nulls.
+    severity: hard
+    rationale: Non-integer or missing replicates break design matrix
+               construction in DESeq2 / edgeR.
+
+  - check: organism_in_allowed_values
+    description: organism must be one of the values defined in the schema.
+    severity: hard
+    rationale: Unknown organism strings cannot be mapped to a genome
+               reference for provenance or integration.
+
+  - check: rin_score_range
+    description: rin_score, if present, must be between 1.0 and 10.0.
+    severity: hard
+    rationale: Out-of-range values indicate data entry errors.
+
+  - check: rin_score_low
+    description: rin_score below 5.0 triggers a degradation warning.
+    soft_min: 7.0
+    hard_min: 5.0
+    severity_below_hard: soft       # hard failure on QC contract, not schema
+    severity_below_soft: warning
+    rationale: >
+      RIN < 7 indicates degradation affecting 3′-biased quantification.
+      RIN < 5 is a strong signal the sample may not be usable for
+      transcript-level analysis. Block is soft here — some contexts
+      (e.g. FFPE) routinely operate with lower RIN.
+
+  - check: strandedness_matches_rnaseq_infer
+    description: >
+      strandedness declared in samplesheet must agree with RSeQC
+      infer_experiment output (if available in MultiQC JSON).
+    severity: soft
+    rationale: Strandedness mismatch causes systematic miscounting of
+               reads on the antisense strand.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 4. EXPERIMENTAL DESIGN CHECKS
+# Never block registration. Always written to .uns['warnings'] on the AnnData.
+# Intended to alert downstream analysts, not gatekeep data.
+# ──────────────────────────────────────────────────────────────────────────────
+
+design:
+
+  - check: min_replicates_per_condition
+    value: 3
+    severity: warning
+    rationale: >
+      DE analysis with fewer than 3 biological replicates per condition has
+      low statistical power and unreliable variance estimates.
+
+  - check: balanced_groups
+    max_imbalance_ratio: 3.0
+    severity: warning
+    rationale: >
+      Highly unequal group sizes reduce power for the minority group and
+      inflate type I error in some DE methods.
+
+  - check: control_condition_present
+    accepted_labels: [control, ctrl, untreated, vehicle, DMSO, wildtype, WT,
+                      mock, neg_ctrl, negative_control, scramble]
+    severity: warning
+    rationale: >
+      Without a recognisable negative control condition, relative comparisons
+      and fold-change calculations have no reference anchor.
+
+  - check: batch_not_confounded_with_condition
+    severity: warning
+    rationale: >
+      Perfect confounding of batch and condition means batch effects cannot
+      be separated from biological signal. Data can still be registered but
+      all DE results must be interpreted with extreme caution.
+
+  - check: batch_column_present
+    severity: warning
+    rationale: >
+      Absence of any batch information prevents batch correction at the
+      modelling stage. Strongly recommended even if only one batch exists
+      (label it explicitly).
+
+  - check: sex_column_present
+    severity: warning
+    rationale: >
+      Sex is a significant covariate for many transcriptional programmes.
+      Its absence cannot be corrected at the analysis stage.
+
+  - check: library_size_outliers
+    std_dev_threshold: 2.5
+    severity: warning
+    rationale: >
+      Samples with library size more than 2.5 SD from the group mean may
+      indicate failed libraries or sequencing lane issues.
+
+  - check: condition_label_consistency
+    severity: warning
+    rationale: >
+      Near-duplicate labels detected by fuzzy matching (e.g. 'Treated' and
+      'treated') suggest manual data entry errors in the samplesheet.
+
+  - check: donor_id_crosses_conditions
+    severity: warning
+    rationale: >
+      If donor_id is present, each donor should ideally appear in more than
+      one condition to enable paired analysis. Donors appearing in only one
+      condition cannot be used as a blocking factor.

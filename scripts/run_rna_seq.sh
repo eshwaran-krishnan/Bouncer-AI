@@ -1,17 +1,13 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────────────
-# Bouncer — RNA-seq QC example run
+# Bouncer — RNA-seq QC example run (macOS / Linux)
 #
 # Usage:
 #   chmod +x scripts/run_rna_seq.sh
 #   ./scripts/run_rna_seq.sh
-#
-# Or set the API URL inline:
-#   BOUNCER_API_URL=https://your-org--bouncer-qc-api.modal.run ./scripts/run_rna_seq.sh
 # ──────────────────────────────────────────────────────────────────────────────
 
-# Set your deployed Modal API URL here (or export it in your shell first)
-: "${BOUNCER_API_URL:=https://lol882192--bouncer-qc-api.modal.run}"  # override with your URL if different
+: "${BOUNCER_API_URL:=https://lol882192--bouncer-qc-api.modal.run}"
 
 bouncer run \
   "RNA-seq/salmon.merged.gene_counts.tsv" \
@@ -19,6 +15,7 @@ bouncer run \
   "RNA-seq/multiqc_data.json" \
   "RNA-seq/rna-seq protocol.pdf" \
   --assay   rna-seq \
-  --schema  rna-seq/basic \
+  --schema  "schemas/rna-seq/basic-schema.yaml" \
+  --qc      "schemas/rna-seq/basic-qc.yaml" \
   --mode    strict \
   --api-url "$BOUNCER_API_URL"

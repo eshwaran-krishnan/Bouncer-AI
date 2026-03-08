@@ -39,24 +39,20 @@ bouncer_image = (
         "duckdb>=0.10.0",
         "pdfplumber>=0.10.3",
         # Assay-specific parsers
-        "fcsparser>=0.2.8",        # Flow cytometry FCS binary files
-        # EDS (QuantStudio qPCR) uses stdlib zipfile + xml — no extra dep needed
-        # Agent framework + Anthropic
-        "langgraph>=0.1.20",
-        "langchain-anthropic>=0.1.15",
+        "fcsparser>=0.2.8",
+        # Agent + Anthropic
         "anthropic>=0.25.0",
-        # API (inside containers only — not imported at module level locally)
+        # API (inside containers only)
         "fastapi>=0.111.0",
         "python-multipart>=0.0.9",
-        # Config / CLI
+        # Config
         "pydantic>=2.6.0",
         "pyyaml>=6.0.1",
         "rich>=13.7.0",
     )
-    # Local bouncer package — code changes picked up without rebuilding the dep layer
     .add_local_python_source("bouncer")
-    # Schema contracts bundled into the container at /schemas
-    # Add new assay folders here as they're created (e.g. schemas/flow-cytometry/)
+    # Bundled schemas available as fallback at /schemas — NOT used when
+    # the user supplies their own via the API upload.
     .add_local_dir("schemas", remote_path="/schemas")
 )
 
@@ -84,7 +80,8 @@ anthropic_secret = modal.Secret.from_name("anthropic-api-key")
 def run_qc(
     staged_paths: list[str],
     assay_type: str,
-    schema_name: str,
+    schema_path: str,
+    qc_path: str,
     mode: str = "strict",
 ) -> dict:
     """
@@ -95,47 +92,15 @@ def run_qc(
     Args:
         staged_paths: Absolute paths to input files on the Volume.
         assay_type:   e.g. "rna-seq", "flow-cytometry", "qpcr"
-        schema_name:  Schema subfolder + stem, e.g. "rna-seq/basic".
-                      Resolves to /schemas/{schema_name}-schema.yaml
-                      and            /schemas/{schema_name}-qc.yaml
+        schema_path:  Absolute path to the staged schema YAML on the Volume.
+                      Always the user-supplied file — never assumed from name.
+        qc_path:      Absolute path to the staged QC YAML on the Volume.
         mode:         "strict" or "permissive"
 
-    Returns: {"passed": bool, "report": str, "feature_id": str | None}
-
-    ── Plug-in point ────────────────────────────────────────────────────────
-    Once bouncer.agent is built, replace the NotImplementedError with:
-
-        import yaml
-        from bouncer.agent.graph import graph
-        from bouncer.config import SchemaContract, QCContract
-
-        schema_path = f"/schemas/{schema_name}-schema.yaml"
-        qc_path     = f"/schemas/{schema_name}-qc.yaml"
-
-        with open(schema_path) as f:
-            schema = SchemaContract(**yaml.safe_load(f))
-        with open(qc_path) as f:
-            qc = QCContract(**yaml.safe_load(f))
-
-        result = graph.invoke({
-            "input_files":     staged_paths,
-            "assay_type":      assay_type,
-            "schema_contract": schema.model_dump(),
-            "qc_contract":     qc.model_dump(),
-            "mode":            mode,
-        })
-
-        bouncer_volume.commit()
-
-        return {
-            "passed":     result["passed"],
-            "report":     result["report"],
-            "feature_id": result.get("feature_id"),
-        }
-    ─────────────────────────────────────────────────────────────────────────
+    Returns: {"passed": bool, "report": str, "report_html": str,
+              "feature_id": str | None, "findings": list}
     """
     import os
-    import yaml
     from bouncer.agent.graph import run as run_pipeline
     from bouncer.utils.logger import get_logger
 
@@ -144,15 +109,20 @@ def run_qc(
     bouncer_volume.reload()
     os.makedirs(FEATURES_DIR, exist_ok=True)
 
-    schema_path = f"/schemas/{schema_name}-schema.yaml"
-    qc_path     = f"/schemas/{schema_name}-qc.yaml"
-
     log.info("job_start",
              assay_type=assay_type,
-             schema_name=schema_name,
+             schema_path=schema_path,
+             qc_path=qc_path,
              mode=mode,
              n_staged_files=len(staged_paths),
              staged_paths=staged_paths)
+
+    # Verify schema files exist — fail fast with a clear error
+    for label, path in [("schema", schema_path), ("qc", qc_path)]:
+        if not os.path.exists(path):
+            msg = f"Staged {label} file not found: {path}"
+            log.error("schema_file_missing", label=label, path=path)
+            raise FileNotFoundError(msg)
 
     try:
         state = run_pipeline(
@@ -165,7 +135,7 @@ def run_qc(
     except Exception as exc:
         log.error("job_failed",
                   assay_type=assay_type,
-                  schema_name=schema_name,
+                  schema_path=schema_path,
                   error=str(exc),
                   exc_info=True)
         raise
@@ -178,16 +148,15 @@ def run_qc(
              feature_id=state.get("feature_id"))
 
     return {
-        "passed":     state["passed"],
-        "report":     state["report"],
-        "feature_id": state.get("feature_id"),
-        "findings":   state["findings"],
+        "passed":      state["passed"],
+        "report":      state["report"],
+        "feature_id":  state.get("feature_id"),
+        "findings":    state["findings"],
+        "tags":        state.get("tags", {}),
     }
 
 
 # ── ASGI Web Endpoint ─────────────────────────────────────────────────────────
-# All FastAPI imports and app construction happen INSIDE this function so they
-# execute inside the container image — not locally when `modal deploy` runs.
 @app.function(
     image=bouncer_image,
     volumes={MOUNT_PATH: bouncer_volume},
@@ -201,6 +170,7 @@ def api():
     Check the URL with: modal app list
     """
     import os
+    import uuid
     from fastapi import FastAPI, File, Form, HTTPException, UploadFile
     from fastapi.responses import Response
 
@@ -220,46 +190,57 @@ def api():
     @web_app.post("/qc/run")
     async def api_run_qc(
         assay_type:  str = Form(..., description="rna-seq | flow-cytometry | qpcr"),
-        schema_name: str = Form(..., description="Schema stem, e.g. 'rna-seq/basic'"),
         mode:        str = Form("strict", description="strict | permissive"),
-        files: list[UploadFile] = File(...),
+        files:       list[UploadFile] = File(..., description="Pipeline output files"),
+        schema_file: UploadFile       = File(..., description="Schema YAML contract"),
+        qc_file:     UploadFile       = File(..., description="QC YAML contract"),
     ):
         """
-        Upload pipeline output files and spawn a QC job.
+        Upload pipeline output files + schema/QC YAMLs and spawn a QC job.
 
-        schema_name resolves to /schemas/{schema_name}-schema.yaml and
-        /schemas/{schema_name}-qc.yaml inside the container.
+        The schema_file and qc_file you supply are ALWAYS used — the container
+        never falls back to any bundled defaults.
 
         Returns job_id immediately. Poll GET /qc/jobs/{job_id} for results.
         """
-        import uuid
-
         run_id  = str(uuid.uuid4())[:8]
         run_dir = f"{STAGING_DIR}/{run_id}"
         os.makedirs(run_dir, exist_ok=True)
 
+        # Stage data files
         staged_paths: list[str] = []
         for upload in files:
             dest = f"{run_dir}/{upload.filename}"
-            content = await upload.read()
             with open(dest, "wb") as f:
-                f.write(content)
+                f.write(await upload.read())
             staged_paths.append(dest)
+
+        # Stage schema + QC YAMLs from the user's upload — always use these
+        staged_schema = f"{run_dir}/_schema.yaml"
+        staged_qc     = f"{run_dir}/_qc.yaml"
+        with open(staged_schema, "wb") as f:
+            f.write(await schema_file.read())
+        with open(staged_qc, "wb") as f:
+            f.write(await qc_file.read())
 
         bouncer_volume.commit()
 
-        call = run_qc.spawn(staged_paths, assay_type, schema_name, mode)
+        call = run_qc.spawn(
+            staged_paths,
+            assay_type,
+            staged_schema,
+            staged_qc,
+            mode,
+        )
 
         return {"job_id": call.object_id, "status": "queued", "run_id": run_id}
 
     @web_app.get("/qc/jobs/{job_id}")
     def api_get_job(job_id: str):
-        """
-        Poll for QC job status. Returns results once the job completes.
-        """
+        """Poll for QC job status. Returns results once the job completes."""
         fc = modal.FunctionCall.from_id(job_id)
         try:
-            result = fc.get(timeout=0)  # non-blocking; raises TimeoutError if still running
+            result = fc.get(timeout=0)
             return {"status": "complete", "result": result}
         except TimeoutError:
             return {"status": "running"}
@@ -268,37 +249,10 @@ def api():
 
     @web_app.get("/features")
     def api_list_features(assay: str | None = None, data_stage: str | None = None):
-        """
-        List registered features from the DuckDB store.
-
-        ── Plug-in point ────────────────────────────────────────────────────
-        from bouncer.store.registry import list_features
-        df = list_features(db_path=DB_PATH, assay=assay, data_stage=data_stage)
-        return df.to_dict(orient="records")
-        ─────────────────────────────────────────────────────────────────────
-        """
         raise HTTPException(503, detail="Feature store not yet implemented.")
 
     @web_app.get("/features/{feature_id}/download")
     def api_pull_feature(feature_id: str):
-        """
-        Download a registered feature set as an h5ad file.
-
-        ── Plug-in point ────────────────────────────────────────────────────
-        import io
-        from bouncer.store.pull import pull_data
-
-        adata = pull_data(db_path=DB_PATH, h5ad_dir=FEATURES_DIR, feature_id=feature_id)
-        buf   = io.BytesIO()
-        adata.write_h5ad(buf)
-
-        return Response(
-            content=buf.getvalue(),
-            media_type="application/octet-stream",
-            headers={"Content-Disposition": f"attachment; filename={feature_id}.h5ad"},
-        )
-        ─────────────────────────────────────────────────────────────────────
-        """
         raise HTTPException(503, detail="Pull API not yet implemented.")
 
     return web_app

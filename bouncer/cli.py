@@ -5,7 +5,10 @@ Set your deployed Modal endpoint before running:
     export BOUNCER_API_URL=https://your-org--bouncer-qc-api.modal.run
 
 Or pass it inline:
-    bouncer run file1 file2 --assay rna-seq --schema rna-seq/basic \\
+    bouncer run file1 file2 \\
+        --assay   rna-seq \\
+        --schema  schemas/rna-seq/basic-schema.yaml \\
+        --qc      schemas/rna-seq/basic-qc.yaml \\
         --api-url https://your-org--bouncer-qc-api.modal.run
 """
 
@@ -13,6 +16,7 @@ from __future__ import annotations
 
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -23,7 +27,7 @@ from rich.table import Table
 app     = typer.Typer(help="Bouncer — biological data quality contract layer.")
 console = Console()
 
-_POLL_INTERVAL = 3    # seconds between status polls
+_POLL_INTERVAL = 3
 _POLL_MAX      = 200  # ~10 min ceiling
 
 
@@ -62,8 +66,7 @@ def _poll_job(base: str, job_id: str) -> dict | None:
         for tick in range(_POLL_MAX):
             elapsed = tick * _POLL_INTERVAL
             status.update(
-                f"[bold]QC job running[/bold] [dim]({job_id})[/dim]"
-                f" — {elapsed}s elapsed"
+                f"[bold]QC job running[/bold] [dim]({job_id})[/dim] — {elapsed}s elapsed"
             )
             try:
                 resp = httpx.get(f"{base}/qc/jobs/{job_id}", timeout=15)
@@ -90,25 +93,189 @@ def _poll_job(base: str, job_id: str) -> dict | None:
     return None
 
 
+def _save_report_html(report: str, result: dict, schema: Path, qc: Path,
+                      assay: str, mode: str, output: Path) -> None:
+    """Write the QC report as a self-contained HTML file."""
+    passed   = result.get("passed", False)
+    tags     = result.get("tags", {})
+    findings = result.get("findings", [])
+
+    status_color = "#22c55e" if passed else "#ef4444"
+    status_text  = "PASSED" if passed else "FAILED"
+    n_hard    = sum(1 for f in findings if f.get("severity") == "hard")
+    n_soft    = sum(1 for f in findings if f.get("severity") == "soft")
+    n_warn    = sum(1 for f in findings if f.get("severity") == "warning")
+
+    # Escape the plain-text report for HTML
+    import html as html_lib
+    report_escaped = html_lib.escape(report)
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bouncer QC Report — {assay}</title>
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #0f172a; color: #e2e8f0; padding: 2rem; }}
+    h1   {{ font-size: 1.5rem; font-weight: 700; margin-bottom: 0.25rem; }}
+    .badge {{ display: inline-block; padding: 0.25rem 0.75rem; border-radius: 9999px;
+              font-weight: 700; font-size: 1rem; color: #fff;
+              background: {status_color}; margin-bottom: 1.5rem; }}
+    .meta-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                  gap: 1rem; margin-bottom: 2rem; }}
+    .meta-card {{ background: #1e293b; border-radius: 0.5rem; padding: 1rem; }}
+    .meta-card .label {{ font-size: 0.75rem; color: #94a3b8; text-transform: uppercase;
+                         letter-spacing: 0.05em; margin-bottom: 0.25rem; }}
+    .meta-card .value {{ font-size: 1rem; font-weight: 600; }}
+    .findings-bar {{ display: flex; gap: 1rem; margin-bottom: 2rem; }}
+    .pill {{ padding: 0.4rem 1rem; border-radius: 0.375rem; font-weight: 600;
+             font-size: 0.875rem; }}
+    .pill.hard {{ background: #450a0a; color: #fca5a5; }}
+    .pill.soft {{ background: #431407; color: #fdba74; }}
+    .pill.warn {{ background: #1e3a5f; color: #93c5fd; }}
+    .section {{ margin-bottom: 2rem; }}
+    .section h2 {{ font-size: 1rem; font-weight: 600; color: #94a3b8;
+                   text-transform: uppercase; letter-spacing: 0.05em;
+                   margin-bottom: 0.75rem; border-bottom: 1px solid #334155;
+                   padding-bottom: 0.5rem; }}
+    .finding {{ background: #1e293b; border-left: 4px solid #334155;
+                border-radius: 0 0.375rem 0.375rem 0; padding: 0.75rem 1rem;
+                margin-bottom: 0.5rem; font-size: 0.875rem; }}
+    .finding.hard {{ border-left-color: #ef4444; }}
+    .finding.soft {{ border-left-color: #f97316; }}
+    .finding.warning {{ border-left-color: #3b82f6; }}
+    .finding .check {{ font-weight: 700; margin-bottom: 0.25rem; }}
+    .finding .detail {{ color: #94a3b8; }}
+    .finding .sample {{ color: #e2e8f0; font-size: 0.8rem; }}
+    pre {{ background: #1e293b; border-radius: 0.5rem; padding: 1.5rem;
+           font-family: "JetBrains Mono", "Fira Code", monospace; font-size: 0.8rem;
+           line-height: 1.6; overflow-x: auto; white-space: pre-wrap;
+           word-wrap: break-word; color: #cbd5e1; }}
+    .footer {{ margin-top: 2rem; font-size: 0.75rem; color: #475569; }}
+  </style>
+</head>
+<body>
+  <h1>Bouncer QC Report</h1>
+  <div class="badge">{status_text}</div>
+
+  <div class="meta-grid">
+    <div class="meta-card">
+      <div class="label">Assay</div>
+      <div class="value">{assay}</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Mode</div>
+      <div class="value">{mode}</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Organism</div>
+      <div class="value">{tags.get("organism", "—")}</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Samples</div>
+      <div class="value">{tags.get("n_samples", "—")}</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Conditions</div>
+      <div class="value">{", ".join(tags.get("conditions", [])) or "—"}</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Data Stage</div>
+      <div class="value">{tags.get("data_stage", "—")}</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Schema</div>
+      <div class="value" style="font-size:0.8rem">{schema.name}</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">QC Contract</div>
+      <div class="value" style="font-size:0.8rem">{qc.name}</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Generated</div>
+      <div class="value" style="font-size:0.8rem">{datetime.now().strftime("%Y-%m-%d %H:%M")}</div>
+    </div>
+  </div>
+
+  <div class="findings-bar">
+    <span class="pill hard">{n_hard} hard</span>
+    <span class="pill soft">{n_soft} soft</span>
+    <span class="pill warn">{n_warn} warnings</span>
+  </div>
+
+  {''.join(_findings_section(findings))}
+
+  <div class="section">
+    <h2>Full Report</h2>
+    <pre>{report_escaped}</pre>
+  </div>
+
+  <div class="footer">
+    Generated by Bouncer QC &nbsp;|&nbsp;
+    Schema: {schema} &nbsp;|&nbsp;
+    QC: {qc}
+  </div>
+</body>
+</html>"""
+
+    output.write_text(html, encoding="utf-8")
+
+
+def _findings_section(findings: list[dict]) -> list[str]:
+    if not findings:
+        return []
+    parts = ['<div class="section"><h2>Findings</h2>']
+    for f in findings:
+        sev   = f.get("severity", "warning")
+        check = f.get("check", "")
+        msg   = f.get("message", "")
+        sample = f.get("sample", "")
+        found  = f.get("found", "")
+        parts.append(
+            f'<div class="finding {sev}">'
+            f'<div class="check">{sev.upper()} — {check}</div>'
+            + (f'<div class="sample">Sample: {sample}</div>' if sample else "")
+            + (f'<div class="detail">Found: {found}</div>' if found else "")
+            + f'<div class="detail">{msg}</div>'
+            f'</div>'
+        )
+    parts.append("</div>")
+    return parts
+
+
 # ── Commands ───────────────────────────────────────────────────────────────────
 
 @app.command()
 def run(
-    inputs:  list[str] = typer.Argument(..., help="Local input files to upload"),
-    assay:   str       = typer.Option(..., "--assay",  "-a", help="rna-seq | flow-cytometry | qpcr"),
-    schema:  str       = typer.Option(..., "--schema", "-s", help="Schema name, e.g. rna-seq/basic"),
-    mode:    str       = typer.Option("strict", "--mode", "-m", help="strict | permissive"),
-    api_url: str       = typer.Option("", "--api-url", envvar="BOUNCER_API_URL",
-                                      help="Bouncer API base URL"),
+    inputs:     list[str] = typer.Argument(..., help="Local input files to upload"),
+    assay:      str       = typer.Option(..., "--assay",  "-a", help="rna-seq | flow-cytometry | qpcr"),
+    schema:     str       = typer.Option(..., "--schema", "-s", help="Path to schema YAML contract"),
+    qc:         str       = typer.Option(..., "--qc",     "-q", help="Path to QC YAML contract"),
+    mode:       str       = typer.Option("strict", "--mode", "-m", help="strict | permissive"),
+    report_out: str       = typer.Option("", "--report-out", "-r",
+                                         help="Save HTML report to this path (default: bouncer_report_<timestamp>.html)"),
+    api_url:    str       = typer.Option("", "--api-url", envvar="BOUNCER_API_URL",
+                                         help="Bouncer API base URL"),
 ):
-    """Upload files to the Bouncer API and stream back QC results."""
+    """
+    Upload files to the Bouncer API and stream back QC results.
+
+    The schema and QC YAMLs you specify are ALWAYS uploaded and used by
+    the container — no bundled defaults are ever substituted.
+    """
     import httpx
 
     base = _resolve_api(api_url)
 
-    # Validate local files
-    paths   = [Path(p) for p in inputs]
-    missing = [str(p) for p in paths if not p.exists()]
+    # Validate all local paths
+    schema_path = Path(schema)
+    qc_path     = Path(qc)
+    data_paths  = [Path(p) for p in inputs]
+
+    missing = [str(p) for p in [schema_path, qc_path, *data_paths] if not p.exists()]
     if missing:
         for m in missing:
             console.print(f"[red]File not found: {m}[/red]")
@@ -117,27 +284,39 @@ def run(
     console.print(
         f"[bold]Bouncer QC[/bold]  "
         f"assay=[cyan]{assay}[/cyan]  "
-        f"schema=[cyan]{schema}[/cyan]  "
+        f"schema=[cyan]{schema_path.name}[/cyan]  "
+        f"qc=[cyan]{qc_path.name}[/cyan]  "
         f"mode=[cyan]{mode}[/cyan]"
     )
-    console.print(f"Uploading {len(paths)} file(s) to [dim]{base}[/dim] ...")
+    console.print(
+        f"Uploading {len(data_paths)} data file(s) + schema + QC contract "
+        f"to [dim]{base}[/dim] ..."
+    )
 
-    # Build multipart payload — keep files open until request completes
-    file_handles = [(p.name, p.open("rb"), _mime(p)) for p in paths]
+    # Open all files and build multipart payload
+    data_handles  = [(p.name, p.open("rb"), _mime(p)) for p in data_paths]
+    schema_handle = (schema_path.name, schema_path.open("rb"), "application/x-yaml")
+    qc_handle     = (qc_path.name,     qc_path.open("rb"),     "application/x-yaml")
+
     try:
         with httpx.Client(timeout=120) as client:
             resp = client.post(
                 f"{base}/qc/run",
-                data={"assay_type": assay, "schema_name": schema, "mode": mode},
-                files=[("files", fh) for fh in file_handles],
+                data={"assay_type": assay, "mode": mode},
+                files=(
+                    [("files", fh) for fh in data_handles]
+                    + [("schema_file", schema_handle), ("qc_file", qc_handle)]
+                ),
             )
         resp.raise_for_status()
     except httpx.HTTPError as exc:
         console.print(f"[red]Upload failed: {exc}[/red]")
         raise typer.Exit(1)
     finally:
-        for _, fobj, _ in file_handles:
+        for _, fobj, _ in data_handles:
             fobj.close()
+        schema_handle[1].close()
+        qc_handle[1].close()
 
     job = resp.json()
     job_id = job["job_id"]
@@ -147,14 +326,29 @@ def run(
     if result is None:
         raise typer.Exit(1)
 
+    # Print to terminal
     console.print()
     console.print(result.get("report", "(no report returned)"))
+
+    # Save HTML report
+    ts          = datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_path = Path(report_out) if report_out else Path(f"bouncer_report_{ts}.html")
+    _save_report_html(
+        report=result.get("report", ""),
+        result=result,
+        schema=schema_path,
+        qc=qc_path,
+        assay=assay,
+        mode=mode,
+        output=report_path,
+    )
+    console.print(f"\n[green]Report saved →[/green] {report_path}")
 
     if not result.get("passed", False):
         raise typer.Exit(1)
 
     if fid := result.get("feature_id"):
-        console.print(f"\n[green]Feature registered:[/green] {fid}")
+        console.print(f"[green]Feature registered:[/green] {fid}")
 
 
 @app.command("list-features")
@@ -196,7 +390,7 @@ def list_features_cmd(
 @app.command()
 def pull(
     feature_id: str = typer.Option(..., "--id", help="Feature ID to download"),
-    output:     str = typer.Option("output.h5ad", "--output", "-o", help="Destination file"),
+    output:     str = typer.Option("output.h5ad", "--output", "-o"),
     api_url:    str = typer.Option("", "--api-url", envvar="BOUNCER_API_URL"),
 ):
     """Download a registered feature set as an h5ad file."""

@@ -2,7 +2,7 @@
 REM ──────────────────────────────────────────────────────────────────────────────
 REM Bouncer — RNA-seq QC example run (Windows)
 REM
-REM Usage: double-click or run from the project root:
+REM Usage: run from the project root:
 REM   scripts\run_rna_seq.bat
 REM ──────────────────────────────────────────────────────────────────────────────
 
@@ -13,7 +13,8 @@ bouncer run ^
   "RNA-seq/samplesheet - correct.csv" ^
   "RNA-seq/multiqc_data.json" ^
   "RNA-seq/rna-seq protocol.pdf" ^
-  --assay rna-seq ^
-  --schema rna-seq/basic ^
-  --mode strict ^
+  --assay   rna-seq ^
+  --schema  "schemas/rna-seq/basic-schema.yaml" ^
+  --qc      "schemas/rna-seq/basic-qc.yaml" ^
+  --mode    strict ^
   --api-url %BOUNCER_API_URL%

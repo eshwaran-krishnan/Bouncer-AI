@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bouncer QC Report — rna-seq</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #0f172a; color: #e2e8f0; padding: 2rem; }
+    h1   { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 9999px;
+              font-weight: 700; font-size: 1rem; color: #fff;
+              background: #ef4444; margin-bottom: 1.5rem; }
+    .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                  gap: 1rem; margin-bottom: 2rem; }
+    .meta-card { background: #1e293b; border-radius: 0.5rem; padding: 1rem; }
+    .meta-card .label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase;
+                         letter-spacing: 0.05em; margin-bottom: 0.25rem; }
+    .meta-card .value { font-size: 1rem; font-weight: 600; }
+    .findings-bar { display: flex; gap: 1rem; margin-bottom: 2rem; }
+    .pill { padding: 0.4rem 1rem; border-radius: 0.375rem; font-weight: 600;
+             font-size: 0.875rem; }
+    .pill.hard { background: #450a0a; color: #fca5a5; }
+    .pill.soft { background: #431407; color: #fdba74; }
+    .pill.warn { background: #1e3a5f; color: #93c5fd; }
+    .section { margin-bottom: 2rem; }
+    .section h2 { font-size: 1rem; font-weight: 600; color: #94a3b8;
+                   text-transform: uppercase; letter-spacing: 0.05em;
+                   margin-bottom: 0.75rem; border-bottom: 1px solid #334155;
+                   padding-bottom: 0.5rem; }
+    .finding { background: #1e293b; border-left: 4px solid #334155;
+                border-radius: 0 0.375rem 0.375rem 0; padding: 0.75rem 1rem;
+                margin-bottom: 0.5rem; font-size: 0.875rem; }
+    .finding.hard { border-left-color: #ef4444; }
+    .finding.soft { border-left-color: #f97316; }
+    .finding.warning { border-left-color: #3b82f6; }
+    .finding .check { font-weight: 700; margin-bottom: 0.25rem; }
+    .finding .detail { color: #94a3b8; }
+    .finding .sample { color: #e2e8f0; font-size: 0.8rem; }
+    pre { background: #1e293b; border-radius: 0.5rem; padding: 1.5rem;
+           font-family: "JetBrains Mono", "Fira Code", monospace; font-size: 0.8rem;
+           line-height: 1.6; overflow-x: auto; white-space: pre-wrap;
+           word-wrap: break-word; color: #cbd5e1; }
+    .footer { margin-top: 2rem; font-size: 0.75rem; color: #475569; }
+  </style>
+</head>
+<body>
+  <h1>Bouncer QC Report</h1>
+  <div class="badge">FAILED</div>
+
+  <div class="meta-grid">
+    <div class="meta-card">
+      <div class="label">Assay</div>
+      <div class="value">rna-seq</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Mode</div>
+      <div class="value">strict</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Organism</div>
+      <div class="value">Homo sapiens</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Samples</div>
+      <div class="value">8</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Conditions</div>
+      <div class="value">treated</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Data Stage</div>
+      <div class="value">raw_counts</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Schema</div>
+      <div class="value" style="font-size:0.8rem">basic-schema.yaml</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">QC Contract</div>
+      <div class="value" style="font-size:0.8rem">basic-qc.yaml</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Generated</div>
+      <div class="value" style="font-size:0.8rem">2026-03-08 17:36</div>
+    </div>
+  </div>
+
+  <div class="findings-bar">
+    <span class="pill hard">3 hard</span>
+    <span class="pill soft">5 soft</span>
+    <span class="pill warn">3 warnings</span>
+  </div>
+
+  <div class="section"><h2>Findings</h2><div class="finding hard"><div class="check">HARD — null_in_required_column</div><div class="detail">Found: 1 null(s)</div><div class="detail">Column 'replicate' is required but has 1 null value(s).</div></div><div class="finding soft"><div class="check">SOFT — picard_PERCENT_DUPLICATION</div><div class="sample">Sample: GM12878_REP1</div><div class="detail">Found: 0.7648</div><div class="detail">picard_PERCENT_DUPLICATION=0.7648 above soft_max=0.5</div></div><div class="finding soft"><div class="check">SOFT — picard_PERCENT_DUPLICATION</div><div class="sample">Sample: GM12878_REP2</div><div class="detail">Found: 0.7703</div><div class="detail">picard_PERCENT_DUPLICATION=0.7703 above soft_max=0.5</div></div><div class="finding soft"><div class="check">SOFT — picard_PERCENT_DUPLICATION</div><div class="sample">Sample: H1_REP1</div><div class="detail">Found: 0.5091</div><div class="detail">picard_PERCENT_DUPLICATION=0.5091 above soft_max=0.5</div></div><div class="finding soft"><div class="check">SOFT — picard_PERCENT_DUPLICATION</div><div class="sample">Sample: H1_REP2</div><div class="detail">Found: 0.5311</div><div class="detail">picard_PERCENT_DUPLICATION=0.5311 above soft_max=0.5</div></div><div class="finding hard"><div class="check">HARD — picard_PERCENT_DUPLICATION</div><div class="sample">Sample: K562_REP1</div><div class="detail">Found: 0.8639</div><div class="detail">picard_PERCENT_DUPLICATION=0.8639 above hard_max=0.8</div></div><div class="finding hard"><div class="check">HARD — picard_PERCENT_DUPLICATION</div><div class="sample">Sample: K562_REP2</div><div class="detail">Found: 0.8317</div><div class="detail">picard_PERCENT_DUPLICATION=0.8317 above hard_max=0.8</div></div><div class="finding soft"><div class="check">SOFT — no_all_zero_genes</div><div class="detail">Found: 19015 genes</div><div class="detail">19015 gene(s) have zero counts across all samples. Filter before modelling.</div></div><div class="finding warning"><div class="check">WARNING — min_replicates_per_condition</div><div class="detail">Found: 2 replicates</div><div class="detail">Condition 'treated' has only 2 biological replicate(s) (minimum recommended: 3).</div></div><div class="finding warning"><div class="check">WARNING — control_condition_present</div><div class="detail">No recognisable control condition found. Accepted control labels: ['control', 'ctrl', 'untreated', 'vehicle', 'DMSO', 'wildtype', 'WT', 'mock', 'neg_ctrl', 'negative_control', 'scramble']. Without a control, fold-change calculations have no reference anchor.</div></div><div class="finding warning"><div class="check">WARNING — batch_not_confounded_with_condition</div><div class="detail">Batch and condition are perfectly confounded — batch effects cannot be separated from biological signal. DE results require extreme caution.</div></div></div>
+
+  <div class="section">
+    <h2>Full Report</h2>
+    <pre>========================================================================
+  BOUNCER QC REPORT — RNA-SEQ
+========================================================================
+  Status  : FAILED
+  Mode    : strict
+  Samples : 8
+  Organism: Homo sapiens
+  Conditions: treated
+  Findings: 3 hard  |  5 soft  |  3 warnings
+========================================================================
+
+── HARD FAILURES ───────────────────────────────────────────────────────
+  ✗ [SCHEMA] null_in_required_column
+      Found   : 1 null(s)
+      Expected: no nulls
+      Column &#x27;replicate&#x27; is required but has 1 null value(s).
+  ✗ [MULTIQC] picard_PERCENT_DUPLICATION
+      Sample  : K562_REP1
+      Found   : 0.8639
+      picard_PERCENT_DUPLICATION=0.8639 above hard_max=0.8
+  ✗ [MULTIQC] picard_PERCENT_DUPLICATION
+      Sample  : K562_REP2
+      Found   : 0.8317
+      picard_PERCENT_DUPLICATION=0.8317 above hard_max=0.8
+
+── SOFT WARNINGS ───────────────────────────────────────────────────────
+  ⚠ [MULTIQC] picard_PERCENT_DUPLICATION
+      Sample  : GM12878_REP1
+      Found   : 0.7648
+      picard_PERCENT_DUPLICATION=0.7648 above soft_max=0.5
+  ⚠ [MULTIQC] picard_PERCENT_DUPLICATION
+      Sample  : GM12878_REP2
+      Found   : 0.7703
+      picard_PERCENT_DUPLICATION=0.7703 above soft_max=0.5
+  ⚠ [MULTIQC] picard_PERCENT_DUPLICATION
+      Sample  : H1_REP1
+      Found   : 0.5091
+      picard_PERCENT_DUPLICATION=0.5091 above soft_max=0.5
+  ⚠ [MULTIQC] picard_PERCENT_DUPLICATION
+      Sample  : H1_REP2
+      Found   : 0.5311
+      picard_PERCENT_DUPLICATION=0.5311 above soft_max=0.5
+  ⚠ [COUNTS MATRIX] no_all_zero_genes
+      Found   : 19015 genes
+      19015 gene(s) have zero counts across all samples. Filter before modelling.
+
+── DESIGN ADVISORIES ───────────────────────────────────────────────────
+  ℹ [DESIGN] min_replicates_per_condition
+      Found   : 2 replicates
+      Expected: &gt;= 3
+      Condition &#x27;treated&#x27; has only 2 biological replicate(s) (minimum recommended: 3).
+  ℹ [DESIGN] control_condition_present
+      No recognisable control condition found. Accepted control labels: [&#x27;control&#x27;, &#x27;ctrl&#x27;, &#x27;untreated&#x27;, &#x27;vehicle&#x27;, &#x27;DMSO&#x27;, &#x27;wildtype&#x27;, &#x27;WT&#x27;, &#x27;mock&#x27;, &#x27;neg_ctrl&#x27;, &#x27;negative_control&#x27;, &#x27;scramble&#x27;]. Without a control, fold-change calculations have no reference anchor.
+  ℹ [DESIGN] batch_not_confounded_with_condition
+      Batch and condition are perfectly confounded — batch effects cannot be separated from biological signal. DE results require extreme caution.
+
+────────────────────────────────────────────────────────────────────────
+  RESULT: FAILED — 3 hard finding(s) block registration.
+  Fix the hard failures and re-run to register this dataset.
+────────────────────────────────────────────────────────────────────────</pre>
+  </div>
+
+  <div class="footer">
+    Generated by Bouncer QC &nbsp;|&nbsp;
+    Schema: schemas\rna-seq\basic-schema.yaml &nbsp;|&nbsp;
+    QC: schemas\rna-seq\basic-qc.yaml
+  </div>
+</body>
+</html>

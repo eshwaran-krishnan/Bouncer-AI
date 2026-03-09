@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bouncer QC Report — rna-seq</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #0f172a; color: #e2e8f0; padding: 2rem; }
+    h1   { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.25rem; }
+    .badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 9999px;
+              font-weight: 700; font-size: 1rem; color: #fff;
+              background: #ef4444; margin-bottom: 1.5rem; }
+    .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                  gap: 1rem; margin-bottom: 2rem; }
+    .meta-card { background: #1e293b; border-radius: 0.5rem; padding: 1rem; }
+    .meta-card .label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase;
+                         letter-spacing: 0.05em; margin-bottom: 0.25rem; }
+    .meta-card .value { font-size: 1rem; font-weight: 600; }
+    .findings-bar { display: flex; gap: 1rem; margin-bottom: 2rem; }
+    .pill { padding: 0.4rem 1rem; border-radius: 0.375rem; font-weight: 600;
+             font-size: 0.875rem; }
+    .pill.hard { background: #450a0a; color: #fca5a5; }
+    .pill.soft { background: #431407; color: #fdba74; }
+    .pill.warn { background: #1e3a5f; color: #93c5fd; }
+    .section { margin-bottom: 2rem; }
+    .section h2 { font-size: 1rem; font-weight: 600; color: #94a3b8;
+                   text-transform: uppercase; letter-spacing: 0.05em;
+                   margin-bottom: 0.75rem; border-bottom: 1px solid #334155;
+                   padding-bottom: 0.5rem; }
+    .finding { background: #1e293b; border-left: 4px solid #334155;
+                border-radius: 0 0.375rem 0.375rem 0; padding: 0.75rem 1rem;
+                margin-bottom: 0.5rem; font-size: 0.875rem; }
+    .finding.hard { border-left-color: #ef4444; }
+    .finding.soft { border-left-color: #f97316; }
+    .finding.warning { border-left-color: #3b82f6; }
+    .finding .check { font-weight: 700; margin-bottom: 0.25rem; }
+    .finding .detail { color: #94a3b8; }
+    .finding .sample { color: #e2e8f0; font-size: 0.8rem; }
+    pre { background: #1e293b; border-radius: 0.5rem; padding: 1.5rem;
+           font-family: "JetBrains Mono", "Fira Code", monospace; font-size: 0.8rem;
+           line-height: 1.6; overflow-x: auto; white-space: pre-wrap;
+           word-wrap: break-word; color: #cbd5e1; }
+    .footer { margin-top: 2rem; font-size: 0.75rem; color: #475569; }
+  </style>
+</head>
+<body>
+  <h1>Bouncer QC Report</h1>
+  <div class="badge">FAILED</div>
+
+  <div class="meta-grid">
+    <div class="meta-card">
+      <div class="label">Assay</div>
+      <div class="value">rna-seq</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Mode</div>
+      <div class="value">strict</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Organism</div>
+      <div class="value">Homo sapiens, Mus musculus</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Samples</div>
+      <div class="value">8</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Conditions</div>
+      <div class="value">treated</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Data Stage</div>
+      <div class="value">—</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Schema</div>
+      <div class="value" style="font-size:0.8rem">basic-schema.yaml</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">QC Contract</div>
+      <div class="value" style="font-size:0.8rem">basic-qc.yaml</div>
+    </div>
+    <div class="meta-card">
+      <div class="label">Generated</div>
+      <div class="value" style="font-size:0.8rem">2026-03-08 17:16</div>
+    </div>
+  </div>
+
+  <div class="findings-bar">
+    <span class="pill hard">11 hard</span>
+    <span class="pill soft">7 soft</span>
+    <span class="pill warn">10 warnings</span>
+  </div>
+
+  <div class="section"><h2>Findings</h2><div class="finding hard"><div class="check">HARD — null_in_required_column</div><div class="detail">Found: 1 null(s)</div><div class="detail">Column 'replicate' is required but has 1 null value(s).</div></div><div class="finding soft"><div class="check">SOFT — multiqc_missing</div><div class="detail">No MultiQC JSON found. Metric checks skipped.</div></div><div class="finding soft"><div class="check">SOFT — counts_matrix_missing</div><div class="detail">No counts matrix found. Counts integrity checks skipped.</div></div><div class="finding hard"><div class="check">HARD — organism_mismatch</div><div class="sample">Sample: GM12878_REP1</div><div class="detail">Found: Mus musculus</div><div class="detail">GM12878 is a well-established human lymphoblastoid cell line (Homo sapiens, derived from a female donor). Listing it as 'Mus musculus' is a clear factual error that will cause all downstream alignment, annotation, and expression results to be wrong.</div></div><div class="finding hard"><div class="check">HARD — organism_mismatch</div><div class="sample">Sample: GM12878_REP2</div><div class="detail">Found: Mus musculus</div><div class="detail">GM12878 is a human lymphoblastoid cell line (Homo sapiens). Listing it as 'Mus musculus' is a clear factual error that will cause all downstream alignment, annotation, and expression results to be wrong.</div></div><div class="finding hard"><div class="check">HARD — replicate_not_integer</div><div class="sample">Sample: GM12878_REP1</div><div class="detail">Found: 1.0 (float)</div><div class="detail">The schema requires replicate to be dtype=int. The value 1.0 is stored as a float, which violates the schema and can cause downstream tool failures or merge key mismatches.</div></div><div class="finding hard"><div class="check">HARD — replicate_not_integer</div><div class="sample">Sample: GM12878_REP2</div><div class="detail">Found: 2.0 (float)</div><div class="detail">The schema requires replicate to be dtype=int. The value 2.0 is stored as a float.</div></div><div class="finding hard"><div class="check">HARD — replicate_not_integer</div><div class="sample">Sample: H1_REP1</div><div class="detail">Found: 1.0 (float)</div><div class="detail">The schema requires replicate to be dtype=int. The value 1.0 is stored as a float.</div></div><div class="finding hard"><div class="check">HARD — replicate_not_integer</div><div class="sample">Sample: H1_REP2</div><div class="detail">Found: 2.0 (float)</div><div class="detail">The schema requires replicate to be dtype=int. The value 2.0 is stored as a float.</div></div><div class="finding hard"><div class="check">HARD — replicate_not_integer</div><div class="sample">Sample: K562_REP1</div><div class="detail">Found: 1.0 (float)</div><div class="detail">The schema requires replicate to be dtype=int. The value 1.0 is stored as a float.</div></div><div class="finding hard"><div class="check">HARD — replicate_not_integer</div><div class="sample">Sample: K562_REP2</div><div class="detail">Found: 2.0 (float)</div><div class="detail">The schema requires replicate to be dtype=int. The value 2.0 is stored as a float.</div></div><div class="finding hard"><div class="check">HARD — replicate_not_integer</div><div class="sample">Sample: MCF7_REP1</div><div class="detail">Found: 1.0 (float)</div><div class="detail">The schema requires replicate to be dtype=int. The value 1.0 is stored as a float.</div></div><div class="finding hard"><div class="check">HARD — replicate_missing_required</div><div class="sample">Sample: MCF7_REP2</div><div class="detail">Found: empty/null</div><div class="detail">The replicate field is required (required=True in schema) but is empty for MCF7_REP2. Missing replicate identifiers prevent correct grouping of replicates in differential expression analysis and must be resolved before registration.</div></div><div class="finding soft"><div class="check">SOFT — rin_score_critically_low</div><div class="sample">Sample: K562_REP2</div><div class="detail">Found: 3.5</div><div class="detail">RIN score of 3.5 indicates severely degraded RNA. This is far below the acceptable threshold for mRNA-seq (typically RIN ≥ 7) and is drastically inconsistent with its paired replicate K562_REP1 (RIN = 8.7). Data from this sample is likely unreliable and the sample should be re-prepared or excluded.</div></div><div class="finding soft"><div class="check">SOFT — passage_number_elevated</div><div class="sample">Sample: H1_REP1</div><div class="detail">Found: 31</div><div class="detail">H1 ESC passage number of 31 is at the upper boundary typically accepted for pluripotent stem cells. High-passage ESCs risk karyotypic abnormalities and loss of pluripotency. This should be verified against the experimental protocol.</div></div><div class="finding soft"><div class="check">SOFT — passage_number_elevated</div><div class="sample">Sample: H1_REP2</div><div class="detail">Found: 32</div><div class="detail">H1 ESC passage number of 32 exceeds the commonly accepted threshold for pluripotent stem cell experiments. High-passage ESCs risk karyotypic abnormalities and loss of pluripotency. This should be verified against the experimental protocol.</div></div><div class="finding soft"><div class="check">SOFT — tissue_cell_type_mismatch</div><div class="sample">Sample: GM12878_REP1</div><div class="detail">Found: tissue='blood', cell_type='GM12878'</div><div class="detail">The cell_type field contains the cell line name 'GM12878' rather than a biological cell type descriptor (e.g. 'lymphoblastoid cell'). While this is a common shorthand, it reduces metadata clarity and downstream compatibility. The same pattern applies to K562 and MCF7 samples.</div></div><div class="finding soft"><div class="check">SOFT — tissue_cell_type_mismatch</div><div class="sample">Sample: GM12878_REP2</div><div class="detail">Found: tissue='blood', cell_type='GM12878'</div><div class="detail">The cell_type field contains the cell line name 'GM12878' rather than a biological cell type descriptor (e.g. 'lymphoblastoid cell').</div></div><div class="finding warning"><div class="check">WARNING — condition_no_control</div><div class="detail">Found: All 8 samples have condition='treated'</div><div class="detail">Every sample in the experiment is labeled 'treated' with no corresponding control/untreated samples present. Without a control group, differential expression analysis cannot be performed. This may indicate missing samples or a metadata labeling error.</div></div><div class="finding warning"><div class="check">WARNING — missing_required_columns</div><div class="detail">Found: Columns treatment, treatment_concentration_uM, timepoint_hr, genotype, donor_id, age are entirely absent from samplesheet</div><div class="detail">All samples are labeled 'treated' but the 'treatment', 'treatment_concentration_uM', and 'timepoint_hr' columns are completely absent from the samplesheet. It is impossible to know what treatment was applied, at what dose, or for how long — critical metadata for any treated-vs-control RNA-seq experiment.</div></div><div class="finding warning"><div class="check">WARNING — passage_inconsistency_across_replicates</div><div class="sample">Sample: GM12878_REP1</div><div class="detail">Found: GM12878_REP1=22, GM12878_REP2=23</div><div class="detail">GM12878 replicates REP1 and REP2 have different passage numbers (22 vs 23). While a difference of 1 passage may be acceptable, it should be intentional and documented. The same pattern is seen in H1 (31 vs 32), K562 (18 vs 19), and MCF7 (27 vs 28).</div></div><div class="finding warning"><div class="check">WARNING — passage_inconsistency_across_replicates</div><div class="sample">Sample: H1_REP1</div><div class="detail">Found: H1_REP1=31, H1_REP2=32</div><div class="detail">H1 ESC replicates REP1 and REP2 have different passage numbers (31 vs 32), suggesting they were harvested from different passages. This introduces a potential confound in the experiment.</div></div><div class="finding warning"><div class="check">WARNING — passage_inconsistency_across_replicates</div><div class="sample">Sample: K562_REP1</div><div class="detail">Found: K562_REP1=18, K562_REP2=19</div><div class="detail">K562 replicates REP1 and REP2 have different passage numbers (18 vs 19), suggesting they were harvested from different passages.</div></div><div class="finding warning"><div class="check">WARNING — passage_inconsistency_across_replicates</div><div class="sample">Sample: MCF7_REP1</div><div class="detail">Found: MCF7_REP1=27, MCF7_REP2=28</div><div class="detail">MCF7 replicates REP1 and REP2 have different passage numbers (27 vs 28), suggesting they were harvested from different passages.</div></div><div class="finding warning"><div class="check">WARNING — input_amount_variation</div><div class="sample">Sample: K562_REP2</div><div class="detail">Found: 870 ng</div><div class="detail">K562_REP2 has an input amount of 870 ng compared to 1000 ng for K562_REP1. Combined with the critically low RIN score (3.5), this sample shows multiple quality concerns and further supports exclusion or re-preparation.</div></div><div class="finding warning"><div class="check">WARNING — min_replicates_per_condition</div><div class="detail">Found: 2 replicates</div><div class="detail">Condition 'treated' has only 2 biological replicate(s) (minimum recommended: 3).</div></div><div class="finding warning"><div class="check">WARNING — control_condition_present</div><div class="detail">No recognisable control condition found. Accepted control labels: ['control', 'ctrl', 'untreated', 'vehicle', 'DMSO', 'wildtype', 'WT', 'mock', 'neg_ctrl', 'negative_control', 'scramble']. Without a control, fold-change calculations have no reference anchor.</div></div><div class="finding warning"><div class="check">WARNING — batch_not_confounded_with_condition</div><div class="detail">Batch and condition are perfectly confounded — batch effects cannot be separated from biological signal. DE results require extreme caution.</div></div></div>
+
+  <div class="section">
+    <h2>Full Report</h2>
+    <pre>========================================================================
+  BOUNCER QC REPORT — RNA-SEQ
+========================================================================
+  Status  : FAILED
+  Mode    : strict
+  Samples : 8
+  Organism: Homo sapiens, Mus musculus
+  Conditions: treated
+  Findings: 11 hard  |  7 soft  |  10 warnings
+========================================================================
+
+── HARD FAILURES ───────────────────────────────────────────────────────
+  ✗ [SCHEMA] null_in_required_column
+      Found   : 1 null(s)
+      Expected: no nulls
+      Column &#x27;replicate&#x27; is required but has 1 null value(s).
+  ✗ [PROTOCOL] organism_mismatch
+      Sample  : GM12878_REP1
+      Found   : Mus musculus
+      Expected: Homo sapiens
+      GM12878 is a well-established human lymphoblastoid cell line (Homo sapiens, derived from a female donor). Listing it as &#x27;Mus musculus&#x27; is a clear factual error that will cause all downstream alignment, annotation, and expression results to be wrong.
+  ✗ [PROTOCOL] organism_mismatch
+      Sample  : GM12878_REP2
+      Found   : Mus musculus
+      Expected: Homo sapiens
+      GM12878 is a human lymphoblastoid cell line (Homo sapiens). Listing it as &#x27;Mus musculus&#x27; is a clear factual error that will cause all downstream alignment, annotation, and expression results to be wrong.
+  ✗ [PROTOCOL] replicate_not_integer
+      Sample  : GM12878_REP1
+      Found   : 1.0 (float)
+      Expected: integer dtype as per schema (e.g. 1)
+      The schema requires replicate to be dtype=int. The value 1.0 is stored as a float, which violates the schema and can cause downstream tool failures or merge key mismatches.
+  ✗ [PROTOCOL] replicate_not_integer
+      Sample  : GM12878_REP2
+      Found   : 2.0 (float)
+      Expected: integer dtype as per schema (e.g. 2)
+      The schema requires replicate to be dtype=int. The value 2.0 is stored as a float.
+  ✗ [PROTOCOL] replicate_not_integer
+      Sample  : H1_REP1
+      Found   : 1.0 (float)
+      Expected: integer dtype as per schema (e.g. 1)
+      The schema requires replicate to be dtype=int. The value 1.0 is stored as a float.
+  ✗ [PROTOCOL] replicate_not_integer
+      Sample  : H1_REP2
+      Found   : 2.0 (float)
+      Expected: integer dtype as per schema (e.g. 2)
+      The schema requires replicate to be dtype=int. The value 2.0 is stored as a float.
+  ✗ [PROTOCOL] replicate_not_integer
+      Sample  : K562_REP1
+      Found   : 1.0 (float)
+      Expected: integer dtype as per schema (e.g. 1)
+      The schema requires replicate to be dtype=int. The value 1.0 is stored as a float.
+  ✗ [PROTOCOL] replicate_not_integer
+      Sample  : K562_REP2
+      Found   : 2.0 (float)
+      Expected: integer dtype as per schema (e.g. 2)
+      The schema requires replicate to be dtype=int. The value 2.0 is stored as a float.
+  ✗ [PROTOCOL] replicate_not_integer
+      Sample  : MCF7_REP1
+      Found   : 1.0 (float)
+      Expected: integer dtype as per schema (e.g. 1)
+      The schema requires replicate to be dtype=int. The value 1.0 is stored as a float.
+  ✗ [PROTOCOL] replicate_missing_required
+      Sample  : MCF7_REP2
+      Found   : empty/null
+      Expected: integer (e.g. 2), required=True per schema
+      The replicate field is required (required=True in schema) but is empty for MCF7_REP2. Missing replicate identifiers prevent correct grouping of replicates in differential expression analysis and must be resolved before registration.
+
+── SOFT WARNINGS ───────────────────────────────────────────────────────
+  ⚠ [MULTIQC] multiqc_missing
+      No MultiQC JSON found. Metric checks skipped.
+  ⚠ [COUNTS MATRIX] counts_matrix_missing
+      No counts matrix found. Counts integrity checks skipped.
+  ⚠ [PROTOCOL] rin_score_critically_low
+      Sample  : K562_REP2
+      Found   : 3.5
+      Expected: RIN ≥ 7 is generally required for high-quality RNA-seq; other K562 replicate has RIN 8.7
+      RIN score of 3.5 indicates severely degraded RNA. This is far below the acceptable threshold for mRNA-seq (typically RIN ≥ 7) and is drastically inconsistent with its paired replicate K562_REP1 (RIN = 8.7). Data from this sample is likely unreliable and the sample should be re-prepared or excluded.
+  ⚠ [PROTOCOL] passage_number_elevated
+      Sample  : H1_REP1
+      Found   : 31
+      Expected: H1 ESCs are typically used at low passage (commonly &lt;30) to maintain pluripotency and genomic stability
+      H1 ESC passage number of 31 is at the upper boundary typically accepted for pluripotent stem cells. High-passage ESCs risk karyotypic abnormalities and loss of pluripotency. This should be verified against the experimental protocol.
+  ⚠ [PROTOCOL] passage_number_elevated
+      Sample  : H1_REP2
+      Found   : 32
+      Expected: H1 ESCs are typically used at low passage (commonly &lt;30) to maintain pluripotency and genomic stability
+      H1 ESC passage number of 32 exceeds the commonly accepted threshold for pluripotent stem cell experiments. High-passage ESCs risk karyotypic abnormalities and loss of pluripotency. This should be verified against the experimental protocol.
+  ⚠ [PROTOCOL] tissue_cell_type_mismatch
+      Sample  : GM12878_REP1
+      Found   : tissue=&#x27;blood&#x27;, cell_type=&#x27;GM12878&#x27;
+      Expected: cell_type field should name the cell type (e.g. &#x27;lymphoblastoid&#x27;); sample_id/cell_line identity belongs in a dedicated cell_line field or cell_type; tissue=&#x27;blood&#x27; is acceptable but the cell_type entry copies the cell line name rather than the biological cell type
+      The cell_type field contains the cell line name &#x27;GM12878&#x27; rather than a biological cell type descriptor (e.g. &#x27;lymphoblastoid cell&#x27;). While this is a common shorthand, it reduces metadata clarity and downstream compatibility. The same pattern applies to K562 and MCF7 samples.
+  ⚠ [PROTOCOL] tissue_cell_type_mismatch
+      Sample  : GM12878_REP2
+      Found   : tissue=&#x27;blood&#x27;, cell_type=&#x27;GM12878&#x27;
+      Expected: cell_type should be a biological cell type descriptor, not the cell line name
+      The cell_type field contains the cell line name &#x27;GM12878&#x27; rather than a biological cell type descriptor (e.g. &#x27;lymphoblastoid cell&#x27;).
+
+── DESIGN ADVISORIES ───────────────────────────────────────────────────
+  ℹ [PROTOCOL] condition_no_control
+      Found   : All 8 samples have condition=&#x27;treated&#x27;
+      Expected: An RNA-seq experiment comparing treatments should include at least one &#x27;control&#x27; or &#x27;untreated&#x27; condition group
+      Every sample in the experiment is labeled &#x27;treated&#x27; with no corresponding control/untreated samples present. Without a control group, differential expression analysis cannot be performed. This may indicate missing samples or a metadata labeling error.
+  ℹ [PROTOCOL] missing_required_columns
+      Found   : Columns treatment, treatment_concentration_uM, timepoint_hr, genotype, donor_id, age are entirely absent from samplesheet
+      Expected: While not all are required, &#x27;condition=treated&#x27; implies a treatment was applied; treatment details are absent
+      All samples are labeled &#x27;treated&#x27; but the &#x27;treatment&#x27;, &#x27;treatment_concentration_uM&#x27;, and &#x27;timepoint_hr&#x27; columns are completely absent from the samplesheet. It is impossible to know what treatment was applied, at what dose, or for how long — critical metadata for any treated-vs-control RNA-seq experiment.
+  ℹ [PROTOCOL] passage_inconsistency_across_replicates
+      Sample  : GM12878_REP1
+      Found   : GM12878_REP1=22, GM12878_REP2=23
+      Expected: Replicates of the same cell line ideally come from the same passage to minimize variation
+      GM12878 replicates REP1 and REP2 have different passage numbers (22 vs 23). While a difference of 1 passage may be acceptable, it should be intentional and documented. The same pattern is seen in H1 (31 vs 32), K562 (18 vs 19), and MCF7 (27 vs 28).
+  ℹ [PROTOCOL] passage_inconsistency_across_replicates
+      Sample  : H1_REP1
+      Found   : H1_REP1=31, H1_REP2=32
+      Expected: Replicates of the same cell line ideally come from the same passage
+      H1 ESC replicates REP1 and REP2 have different passage numbers (31 vs 32), suggesting they were harvested from different passages. This introduces a potential confound in the experiment.
+  ℹ [PROTOCOL] passage_inconsistency_across_replicates
+      Sample  : K562_REP1
+      Found   : K562_REP1=18, K562_REP2=19
+      Expected: Replicates of the same cell line ideally come from the same passage
+      K562 replicates REP1 and REP2 have different passage numbers (18 vs 19), suggesting they were harvested from different passages.
+  ℹ [PROTOCOL] passage_inconsistency_across_replicates
+      Sample  : MCF7_REP1
+      Found   : MCF7_REP1=27, MCF7_REP2=28
+      Expected: Replicates of the same cell line ideally come from the same passage
+      MCF7 replicates REP1 and REP2 have different passage numbers (27 vs 28), suggesting they were harvested from different passages.
+  ℹ [PROTOCOL] input_amount_variation
+      Sample  : K562_REP2
+      Found   : 870 ng
+      Expected: Most other samples use 1000 ng; K562_REP1 uses 1000 ng
+      K562_REP2 has an input amount of 870 ng compared to 1000 ng for K562_REP1. Combined with the critically low RIN score (3.5), this sample shows multiple quality concerns and further supports exclusion or re-preparation.
+  ℹ [DESIGN] min_replicates_per_condition
+      Found   : 2 replicates
+      Expected: &gt;= 3
+      Condition &#x27;treated&#x27; has only 2 biological replicate(s) (minimum recommended: 3).
+  ℹ [DESIGN] control_condition_present
+      No recognisable control condition found. Accepted control labels: [&#x27;control&#x27;, &#x27;ctrl&#x27;, &#x27;untreated&#x27;, &#x27;vehicle&#x27;, &#x27;DMSO&#x27;, &#x27;wildtype&#x27;, &#x27;WT&#x27;, &#x27;mock&#x27;, &#x27;neg_ctrl&#x27;, &#x27;negative_control&#x27;, &#x27;scramble&#x27;]. Without a control, fold-change calculations have no reference anchor.
+  ℹ [DESIGN] batch_not_confounded_with_condition
+      Batch and condition are perfectly confounded — batch effects cannot be separated from biological signal. DE results require extreme caution.
+
+────────────────────────────────────────────────────────────────────────
+  RESULT: FAILED — 11 hard finding(s) block registration.
+  Fix the hard failures and re-run to register this dataset.
+────────────────────────────────────────────────────────────────────────</pre>
+  </div>
+
+  <div class="footer">
+    Generated by Bouncer QC &nbsp;|&nbsp;
+    Schema: C:\Users\legot\TATTVA\Bouncer AI\schemas\rna-seq\basic-schema.yaml &nbsp;|&nbsp;
+    QC: C:\Users\legot\TATTVA\Bouncer AI\schemas\rna-seq\basic-qc.yaml
+  </div>
+</body>
+</html>

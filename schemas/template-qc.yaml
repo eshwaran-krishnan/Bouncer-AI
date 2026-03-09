@@ -1,0 +1,233 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# BOUNCER — QC Contract Template
+#
+# Copy this file and configure thresholds for your assay and pipeline.
+# Each section is independent — include only what applies.
+#
+# Naming convention: <assay>/<name>-qc.yaml
+# e.g.  schemas/rna-seq/basic-qc.yaml
+#       schemas/flow-cytometry/panel-a-qc.yaml
+#
+# Severity levels:
+#   hard    — blocks registration in strict mode; always surfaced in report
+#   soft    — advisory; never blocks; flagged in report
+#   warning — design/metadata advisory; never blocks
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ── Header ────────────────────────────────────────────────────────────────────
+
+version: "1.0.0"                  # [REQUIRED] Increment when thresholds change.
+
+assay_type: rna-seq               # [REQUIRED] Must match the paired schema contract.
+
+pipeline: nf-core/rnaseq          # Optional. The bioinformatics pipeline that
+                                  # produced these outputs (for provenance).
+
+data_stage: raw_counts            # [REQUIRED] Must match the paired schema contract.
+
+# ── MultiQC Metric Rules ──────────────────────────────────────────────────────
+#
+# Checks against values in the MultiQC general_stats JSON.
+# Each rule targets one metric key as it appears in general_stats.
+#
+# Dual-threshold fields (all optional):
+#   hard_min / hard_max  — absolute bounds; violation = severity_below/above_hard
+#   soft_min / soft_max  — advisory bounds; violation = severity_below/above_soft
+#
+# Severity fields (default to "hard" or "soft" if not set):
+#   severity_below_hard   severity for value < hard_min
+#   severity_above_hard   severity for value > hard_max
+#   severity_below_soft   severity for value < soft_min
+#   severity_above_soft   severity for value > soft_max
+#   severity_outside_hard shorthand when both hard_min + hard_max are set
+#   severity_outside_soft shorthand when both soft_min + soft_max are set
+
+multiqc:
+
+  # ── Alignment ───────────────────────────────────────────────────────────────
+
+  - metric: STAR_percent_uniquely_mapped
+    description: Fraction of reads that aligned uniquely to the genome.
+    rationale: Low unique mapping indicates contamination, wrong genome, or poor RNA quality.
+    hard_min: 0.70
+    soft_min: 0.80
+    severity_below_hard: hard
+    severity_below_soft: soft
+
+  - metric: STAR_percent_mapped_to_multiple_loci
+    description: Reads mapping to multiple genomic loci.
+    rationale: High multi-mapping suggests annotation gaps; acceptable for some organisms.
+    hard_max: 0.20
+    soft_max: 0.10
+    severity_above_hard: hard
+    severity_above_soft: soft
+
+  # ── Read quality ─────────────────────────────────────────────────────────────
+
+  - metric: FastQC_percent_duplicates
+    description: Fraction of duplicate reads detected by FastQC.
+    rationale: High duplication can indicate low library complexity or over-amplification.
+    hard_max: 0.70
+    soft_max: 0.50
+    severity_above_hard: hard
+    severity_above_soft: soft
+
+  - metric: FastQC_percent_gc
+    description: GC content of sequenced reads.
+    rationale: Deviation from expected species GC% may indicate contamination.
+    hard_min: 0.30
+    hard_max: 0.75
+    soft_min: 0.40
+    soft_max: 0.65
+    severity_outside_hard: hard
+    severity_outside_soft: soft
+
+  # ── Quantification ────────────────────────────────────────────────────────────
+
+  - metric: Salmon_num_mapped
+    description: Number of reads assigned to genes by Salmon.
+    rationale: Low counts may indicate alignment or quantification failure.
+    hard_min: 500000
+    soft_min: 1000000
+    severity_below_hard: hard
+    severity_below_soft: soft
+
+  # ── Add your pipeline-specific metrics below ──────────────────────────────────
+  #
+  # Common RNA-seq metrics in MultiQC general_stats:
+  #   STAR_total_reads, STAR_avg_input_read_length
+  #   featureCounts_Assigned, featureCounts_Unassigned_NoFeatures
+  #   Picard_PERCENT_DUPLICATION, Picard_MEDIAN_INSERT_SIZE
+  #   RSeQC_reads_properly_paired, RSeQC_exon_map_reads_pct
+  #   Trimmomatic_surviving, Cutadapt_percent_trimmed
+  #
+  # Flow cytometry (if you export QC metrics to JSON):
+  #   flow_acquisition_events, flow_viability_pct
+  #
+  # qPCR:
+  #   qpcr_mean_efficiency, qpcr_r_squared
+
+
+# ── Counts Matrix Rules ───────────────────────────────────────────────────────
+#
+# Boolean checks and numeric thresholds on the data matrix itself.
+#
+# Boolean checks (severity only):
+#   no_negative_values      — any value < 0 is a hard error for raw counts
+#   no_all_zero_samples     — sample with all-zero counts across all genes
+#   no_all_zero_genes       — gene with all-zero counts across all samples
+#   no_nan_values           — NaN in the matrix
+#
+# Numeric checks (dual-threshold, same pattern as multiqc):
+#   min_expressed_genes     — genes with count > 0 per sample
+
+counts_matrix:
+
+  - check: no_negative_values
+    description: Raw counts must not contain negative values.
+    severity: hard
+
+  - check: no_nan_values
+    description: Matrix must not contain NaN or null values.
+    severity: hard
+
+  - check: no_all_zero_samples
+    description: A sample with all-zero counts indicates a failed library or wrong sample ID.
+    severity: hard
+
+  - check: no_all_zero_genes
+    description: Genes with zero counts in all samples should be filtered pre-registration.
+    severity: soft
+
+  - check: min_expressed_genes
+    description: Minimum number of genes with at least one count per sample.
+    rationale: Fewer expressed genes than expected may indicate shallow sequencing or RNA degradation.
+    soft_min: 5000
+    hard_min: 1000
+    severity_below_hard: hard
+    severity_below_soft: soft
+
+  # ── Add matrix checks relevant to your data stage ─────────────────────────
+  #
+  # For TPM / normalized data:
+  #   - check: no_negative_values   (always)
+  #   - check: column_sums_approximately_equal   (TPM columns should sum to ~1M)
+  #   - check: no_nan_values
+
+
+# ── Metadata / Samplesheet Rules ─────────────────────────────────────────────
+#
+# Value-level checks on samplesheet columns beyond dtype/required.
+# These are numeric thresholds on numeric metadata columns.
+
+metadata:
+
+  - check: rin_score_min
+    description: RNA Integrity Number below threshold indicates degradation.
+    rationale: Low RIN increases noise in differential expression; required for primary tissue.
+    hard_min: 5.0
+    soft_min: 7.0
+    severity_below_hard: hard
+    severity_below_soft: soft
+
+  # - check: passage_number_max
+  #   description: High passage numbers correlate with phenotypic drift.
+  #   hard_max: 30
+  #   soft_max: 20
+  #   severity_above_hard: soft
+  #   severity_above_soft: warning
+
+
+# ── Experimental Design Rules ─────────────────────────────────────────────────
+#
+# Design checks are always severity: warning — they inform, never block.
+# All accepted_labels values are case-insensitive during matching.
+
+design:
+
+  - check: min_replicates_per_condition
+    description: Each condition should have at least this many biological replicates.
+    rationale: Fewer replicates limits statistical power for differential expression.
+    value: 3
+    severity: warning
+
+  - check: balanced_groups
+    description: Flag if the largest condition group is more than N× the smallest.
+    rationale: Severe imbalance reduces power for the minority group.
+    max_imbalance_ratio: 3.0
+    severity: warning
+
+  - check: control_condition_present
+    description: Warn if no recognised control label is found in the condition column.
+    rationale: Controls are required for differential expression and normalisation validation.
+    accepted_labels:
+      - control
+      - untreated
+      - DMSO
+      - vehicle
+      - wildtype
+      - WT
+      - mock
+      - scramble
+    severity: warning
+
+  - check: batch_not_confounded_with_condition
+    description: Warn if batch and condition columns are perfectly correlated.
+    rationale: Full confounding makes batch correction impossible.
+    severity: warning
+
+  - check: library_size_outliers
+    description: Warn if any sample has a library size > N standard deviations from the group mean.
+    rationale: Outlier library sizes may indicate failed samples that passed alignment QC.
+    std_dev_threshold: 2.5
+    severity: warning
+
+  - check: condition_label_consistency
+    description: Warn if condition labels look like near-duplicates (e.g. 'Control' vs 'control').
+    severity: warning
+
+  # ── Add experiment-specific design checks ─────────────────────────────────
+  #
+  # - check: factorial_completeness
+  #   description: All combinations of treatment × timepoint are present.
+  #   severity: warning

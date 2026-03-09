@@ -1,0 +1,236 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# BOUNCER — RNA-seq Schema Contract (Basic)
+# Defines what columns must exist in the samplesheet and what gets registered
+# to the feature store. Focused on metadata needed for downstream analysis,
+# differential expression, batch correction, and ML modeling.
+# ──────────────────────────────────────────────────────────────────────────────
+
+version: "1.0.0"
+assay_type: rna-seq
+data_stage: raw_counts
+index_column: gene_id
+sample_columns: from_samplesheet
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SAMPLE METADATA COLUMNS
+#
+# required: true  → column must exist and cannot have any empty/null values
+# required: false → column is optional; if present, dtype is enforced
+# dtype options   → str | int | float | category | bool
+#
+# Categories are enforced as a fixed set of values where specified.
+# Use 'str' when the value space is open-ended (e.g. free-text cell line names).
+# ──────────────────────────────────────────────────────────────────────────────
+
+metadata_columns:
+
+  # ── IDENTIFIERS ─────────────────────────────────────────────────────────────
+
+  - name: sample_id
+    dtype: str
+    required: true
+    unique: true
+    description: >
+      Primary key. Must be unique across all samples.
+      Must match column headers in the counts matrix exactly.
+
+  - name: experiment_id
+    dtype: str
+    required: true
+    description: >
+      Groups samples belonging to the same experimental run.
+      Used to scope provenance and enable per-experiment QC.
+
+  # ── BIOLOGY ─────────────────────────────────────────────────────────────────
+
+  - name: organism
+    dtype: category
+    required: true
+    allowed_values: [Homo sapiens, Mus musculus, Rattus norvegicus,
+                     Danio rerio, Drosophila melanogaster, Caenorhabditis elegans]
+    description: >
+      Species. Controls genome reference and gene annotation used upstream.
+      Required for cross-dataset integration and model training.
+
+  - name: tissue
+    dtype: str
+    required: true
+    description: >
+      Tissue or organ of origin (e.g. liver, brain cortex, PBMC).
+      Free-text to accommodate novel tissue types; normalise to ontology
+      (UBERON) during registration where possible.
+
+  - name: cell_type
+    dtype: str
+    required: false
+    description: >
+      Cell type or cell line name if the sample is not a bulk tissue.
+      Required when tissue = 'cell_line'. Free-text; normalise to
+      Cell Ontology (CL) terms for modelling.
+
+  - name: condition
+    dtype: category
+    required: true
+    description: >
+      Primary experimental grouping (e.g. treated, control, knockdown).
+      Must include a recognisable control label — see QC contract for
+      accepted control vocabulary.
+
+  - name: treatment
+    dtype: str
+    required: false
+    description: >
+      Specific perturbation applied (e.g. drug name, siRNA target, cytokine).
+      Distinct from condition: condition is the group label,
+      treatment is the molecular detail. Critical for downstream modelling.
+
+  - name: treatment_concentration_uM
+    dtype: float
+    required: false
+    description: >
+      Treatment concentration in micromolar. Required when treatment is set.
+      Used for dose-response modelling. Must be numeric (not "10uM").
+
+  - name: timepoint_hr
+    dtype: float
+    required: false
+    description: >
+      Time after treatment in hours. Required for time-course experiments.
+      Stored as numeric; avoids ambiguity of string labels like "24h" vs "24hr".
+
+  - name: genotype
+    dtype: str
+    required: false
+    description: >
+      Genetic background, mutation, or transgene (e.g. TP53_KO, KRAS_G12D).
+      Required for CRISPR or genetic perturbation experiments.
+
+  # ── EXPERIMENTAL DESIGN ─────────────────────────────────────────────────────
+
+  - name: replicate
+    dtype: int
+    required: true
+    description: >
+      Biological replicate number (1, 2, 3 ...). Must be an integer.
+      Technical replicates should be collapsed before registration.
+      Used by design QC checks (min replicates, balance).
+
+  - name: batch
+    dtype: str
+    required: false
+    description: >
+      Batch identifier — sequencing run, library prep date, operator, plate ID,
+      or any known source of technical variation. If multiple batch sources
+      exist use batch_1, batch_2 columns. Absence will trigger a design warning.
+
+  # ── DONOR / PATIENT ─────────────────────────────────────────────────────────
+
+  - name: donor_id
+    dtype: str
+    required: false
+    description: >
+      Unique donor or patient identifier. Required when samples come from
+      primary human or animal tissue. Used to model donor-as-random-effect.
+      Must be pseudonymised; no PII.
+
+  - name: sex
+    dtype: category
+    required: false
+    allowed_values: [male, female, unknown, mixed]
+    description: >
+      Biological sex. Important covariate for DE analysis and ML.
+      Use 'mixed' for pooled samples. Absence will trigger a soft warning.
+
+  - name: age
+    dtype: float
+    required: false
+    description: >
+      Donor age in years (float allows e.g. 0.5 for 6 months).
+      For cell lines use passage_number instead.
+
+  - name: passage_number
+    dtype: int
+    required: false
+    description: >
+      Cell line passage at time of experiment. High passage numbers are a
+      known source of phenotypic drift. Required when cell_type is set.
+
+  # ── LIBRARY & SEQUENCING ────────────────────────────────────────────────────
+
+  - name: library_type
+    dtype: category
+    required: true
+    allowed_values: [single-end, paired-end]
+    description: >
+      Read layout. Affects alignment parameters and downstream tools.
+      Mismatching library_type with actual data is a common hard failure.
+
+  - name: strandedness
+    dtype: category
+    required: true
+    allowed_values: [forward, reverse, unstranded]
+    description: >
+      Library strandedness protocol. Required for correct read counting.
+      'unstranded' is acceptable but loses strand-specificity information.
+
+  - name: read_length_bp
+    dtype: int
+    required: false
+    description: >
+      Sequencing read length in base pairs. Important for alignment and
+      for comparing datasets during integration. Derived from FastQC if absent.
+
+  - name: sequencing_platform
+    dtype: category
+    required: false
+    allowed_values: [Illumina NovaSeq 6000, Illumina HiSeq 4000,
+                     Illumina NextSeq 550, Illumina MiSeq,
+                     ONT PromethION, ONT MinION, BGI DNBSEQ, other]
+    description: >
+      Sequencing instrument. Useful for diagnosing platform-specific
+      batch effects. Use 'other' with a free-text note if unlisted.
+
+  - name: library_prep_kit
+    dtype: str
+    required: false
+    description: >
+      Library preparation kit name and version
+      (e.g. "Illumina TruSeq Stranded mRNA v2").
+      Tracks protocol changes that can introduce batch effects.
+
+  # ── RNA QUALITY ─────────────────────────────────────────────────────────────
+
+  - name: rin_score
+    dtype: float
+    required: false
+    description: >
+      RNA Integrity Number (1–10). Values < 7 indicate degradation and will
+      trigger a soft warning. Values < 5 trigger a hard warning.
+      Required for primary tissue samples; optional for cell lines.
+
+  - name: input_amount_ng
+    dtype: float
+    required: false
+    description: >
+      Total RNA input into library prep in nanograms.
+      Low input is correlated with higher duplication rates.
+
+  # ── PROTOCOL TRACKING ───────────────────────────────────────────────────────
+
+  - name: protocol_version
+    dtype: str
+    required: false
+    description: >
+      Internal protocol document version used for this sample.
+      Enables future cross-referencing with protocol PDF inputs.
+
+# ──────────────────────────────────────────────────────────────────────────────
+# FEATURE STORE OUTPUT
+# These are the data objects registered to the DuckDB feature store
+# after a successful QC run.
+# ──────────────────────────────────────────────────────────────────────────────
+
+output_features:
+  - counts_matrix       # genes × samples raw count matrix (AnnData .X)
+  - sample_metadata     # all samplesheet columns above (AnnData .obs)
+  - gene_metadata       # gene_id index + any annotation columns (AnnData .var)

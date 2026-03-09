@@ -10,10 +10,10 @@
 : "${BOUNCER_API_URL:=https://lol882192--bouncer-qc-api.modal.run}"
 
 bouncer run \
-  "data/RNA-seq/incorrect/salmon.merged.gene_counts.tsv" \
-  "data/RNA-seq/incorrect/samplesheet - incorrect.csv" \
-  "data/RNA-seq/incorrect/multiqc_data_incorrect.json" \
-  "data/RNA-seq/incorrect/rna-seq protocol.pdf" \
+  "RNA-seq/salmon.merged.gene_counts.tsv" \
+  "RNA-seq/samplesheet - incorrect.csv" \
+  "RNA-seq/multiqc_data.json" \
+  "RNA-seq/rna-seq protocol.pdf" \
   --assay   rna-seq \
   --schema  "schemas/rna-seq/basic-schema.yaml" \
   --qc      "schemas/rna-seq/basic-qc.yaml" \

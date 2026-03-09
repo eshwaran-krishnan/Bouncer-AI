@@ -184,6 +184,109 @@ def run_qc(
     }
 
 
+# ── Push-to-Store Function ────────────────────────────────────────────────────
+@app.function(
+    image=bouncer_image,
+    volumes={MOUNT_PATH: bouncer_volume},
+    timeout=300,
+    cpu=2.0,
+    memory=4096,
+)
+def push_to_store(
+    staged_paths: list[str],
+    schema_name: str,          # e.g. "rna-seq/basic"
+    mode: str = "strict",
+) -> dict:
+    """
+    Schema-driven registration without the AI QC agent.
+    Loads schema from bundled copy in image, validates, builds AnnData, registers.
+    """
+    import os
+    import yaml as _yaml
+    import pandas as pd
+    from bouncer.config import SchemaContract
+    from bouncer.qc.schema_validator import validate_schema
+    from bouncer.store.registry import init_db, register
+    from bouncer.store.builder import build_adata
+    from bouncer.utils.logger import get_logger
+
+    log = get_logger("bouncer.modal.push_to_store")
+    bouncer_volume.reload()
+    os.makedirs(FEATURES_DIR, exist_ok=True)
+    init_db(DB_PATH)
+
+    # Resolve schema from bundled copy
+    parts = schema_name.split("/", 1)
+    if len(parts) != 2:
+        raise ValueError(f"Invalid schema name: {schema_name!r}. Expected 'assay/name'.")
+    assay_dir, schema_base = parts
+    schema_path = f"/schemas/{assay_dir}/{schema_base}-schema.yaml"
+
+    with open(schema_path) as f:
+        schema_dict = _yaml.safe_load(f)
+    schema = SchemaContract(**schema_dict)
+
+    # Identify counts matrix and samplesheet from staged files
+    tsv_files = [p for p in staged_paths if p.endswith(".tsv")]
+    csv_files = [p for p in staged_paths if p.endswith(".csv")]
+
+    if not tsv_files or not csv_files:
+        raise ValueError("push requires a counts matrix (.tsv) and a samplesheet (.csv)")
+
+    counts_path = tsv_files[0]
+    sheet_path  = csv_files[0]
+
+    counts_df = pd.read_csv(counts_path, sep="\t", index_col=schema.index_column)
+    sheet_df  = pd.read_csv(sheet_path)
+
+    # Validate metadata columns
+    findings = validate_schema(sheet_df, schema, counts_columns=list(counts_df.columns))
+    hard = [f for f in findings if f.severity == "hard"]
+    if hard and mode == "strict":
+        return {
+            "registered": False,
+            "findings": [f.model_dump() for f in findings],
+            "error": f"{len(hard)} hard finding(s) blocked registration.",
+        }
+
+    # Build state compatible with build_adata + register
+    state = {
+        "passed": len(hard) == 0,
+        "mode": mode,
+        "findings": [f.model_dump() for f in findings],
+        "tags": {
+            "assay_type": schema.assay_type,
+            "data_stage": schema.data_stage,
+            "n_samples":  int(counts_df.shape[1]),
+        },
+        "schema_contract": schema_dict,
+        "qc_contract": {},
+        "file_map": [
+            {"path": counts_path, "file_type": "counts_matrix", "content": None},
+            {"path": sheet_path,  "file_type": "sample_sheet",  "content": None},
+        ],
+        "extracted_data": {
+            "counts_matrix": counts_df,
+            "sample_sheet":  sheet_df,
+        },
+        "report": "",
+    }
+
+    adata = build_adata(state)
+    if adata is None:
+        raise ValueError("Could not build AnnData from provided files")
+
+    feature_id = register(adata, state, DB_PATH, FEATURES_DIR)
+    bouncer_volume.commit()
+
+    log.info("push_complete", feature_id=feature_id, schema=schema_name)
+    return {
+        "registered": True,
+        "feature_id": feature_id,
+        "findings": [f.model_dump() for f in findings],
+    }
+
+
 # ── ASGI Web Endpoint ─────────────────────────────────────────────────────────
 @app.function(
     image=bouncer_image,
@@ -446,5 +549,32 @@ def api():
             raise HTTPException(400, detail=f"Query error: {exc}")
 
         return result.to_dict(orient="records")
+
+    @web_app.post("/features/push")
+    async def api_features_push(
+        files:       list[UploadFile] = File(..., description="counts matrix (.tsv) + samplesheet (.csv)"),
+        schema_name: str              = Form("rna-seq/basic", description="Bundled schema name, e.g. rna-seq/basic"),
+        mode:        str              = Form("strict"),
+    ):
+        """
+        Schema-driven registration without the AI QC agent.
+        Schema is resolved from the bundled copy in the image — no upload needed.
+        Returns job_id immediately. Poll GET /qc/jobs/{job_id} for results.
+        """
+        run_id  = str(uuid.uuid4())[:8]
+        run_dir = f"{STAGING_DIR}/{run_id}"
+        os.makedirs(run_dir, exist_ok=True)
+
+        staged_paths: list[str] = []
+        for upload in files:
+            dest = f"{run_dir}/{upload.filename}"
+            with open(dest, "wb") as f:
+                f.write(await upload.read())
+            staged_paths.append(dest)
+
+        bouncer_volume.commit()
+
+        call = push_to_store.spawn(staged_paths, schema_name, mode)
+        return {"job_id": call.object_id, "status": "queued", "run_id": run_id}
 
     return web_app

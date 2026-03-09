@@ -7,7 +7,6 @@ right checks based on assay_type. Accumulates findings in state.
 
 from __future__ import annotations
 
-import base64
 import json
 import os
 import pandas as pd
@@ -249,47 +248,32 @@ def _scientist_review(
     assay_type: str,
 ) -> list[Finding]:
     """
-    Holistic scientist review — Claude reads the actual PDF + all data together.
+    Holistic scientist review using already-extracted data from each file.
 
-    The PDF is passed directly as a document block (not extracted text) so
-    Claude has the authoritative source. The full samplesheet is passed row by
-    row so Claude can flag specific sample_ids, not just column-level summaries.
+    Each file was already read independently by the extract node (PDF → full_text,
+    MultiQC → general_stats, counts → shape/columns). This function assembles
+    those pre-extracted pieces into a single prompt — no file re-reading.
 
     Catches things deterministic checks miss:
-      - Two samples with wrong organism buried in a larger samplesheet
-      - strandedness contradicting the protocol's dUTP / forward declaration
+      - Samples with wrong organism (e.g. human cell line listed as mouse)
+      - Strandedness contradicting the protocol's dUTP / forward declaration
       - A single sample's RIN score contradicting what the protocol recorded
-      - Empty required fields (replicate, condition) on specific samples
-      - Condition labels (treated/control) inconsistent with the protocol design
-      - Library type (single-end vs paired-end) contradicting protocol
+      - Empty required fields on specific samples
+      - Condition labels inconsistent with the protocol design
+      - Library type contradicting protocol
       - Experiment ID mismatches between protocol and samplesheet
     """
-    content: list[dict] = []
+    # ── 1. Protocol text (already extracted by read_pdf in extract node) ───────
     protocol_data = extracted.get("protocol_document")
+    protocol_text = ""
     has_protocol  = False
 
-    # ── 1. Pass the PDF directly as a document block ──────────────────────────
-    # This gives Claude the authoritative source rather than a lossy extraction.
     if protocol_data and not protocol_data.get("error"):
-        pdf_path = protocol_data.get("path", "")
-        if pdf_path and os.path.exists(pdf_path):
-            try:
-                with open(pdf_path, "rb") as fh:
-                    pdf_b64 = base64.b64encode(fh.read()).decode()
-                content.append({
-                    "type": "document",
-                    "source": {
-                        "type": "base64",
-                        "media_type": "application/pdf",
-                        "data": pdf_b64,
-                    },
-                    "title": "Experiment Protocol",
-                })
-                has_protocol = True
-                log.info("scientist_review_pdf_attached", path=pdf_path)
-            except Exception as exc:
-                log.warning("scientist_review_pdf_read_failed",
-                            path=pdf_path, error=str(exc))
+        protocol_text = protocol_data.get("full_text", "")
+        if protocol_text:
+            has_protocol = True
+            log.info("scientist_review_protocol_attached",
+                     chars=len(protocol_text))
 
     # ── 2. Full samplesheet — every row ───────────────────────────────────────
     sheet_csv = samplesheet_df.to_csv(index=False)
@@ -301,14 +285,14 @@ def _scientist_review(
         for c in schema.metadata_columns
     )
 
-    # ── 4. MultiQC per-sample stats ───────────────────────────────────────────
+    # ── 4. MultiQC per-sample stats (already parsed by read_json) ─────────────
     mq_data = extracted.get("multiqc_json")
     multiqc_section = "Not provided."
     if mq_data and not mq_data.get("error"):
         stats = mq_data.get("general_stats") or {}
         multiqc_section = json.dumps(stats, indent=2, default=str)[:3000]
 
-    # ── 5. Counts matrix shape + sample IDs ───────────────────────────────────
+    # ── 5. Counts matrix shape + sample IDs (already parsed by read_csv) ──────
     counts_data = extracted.get("counts_matrix")
     counts_section = "Not provided."
     if counts_data and not counts_data.get("error"):
@@ -317,26 +301,31 @@ def _scientist_review(
             f"Sample IDs in matrix: {counts_data.get('columns', [])}"
         )
 
-    # ── 6. Build the text prompt ──────────────────────────────────────────────
+    # ── 6. Build the prompt ───────────────────────────────────────────────────
     protocol_note = (
-        "The experiment protocol PDF is attached above. Read it carefully."
+        "The experiment protocol is provided below. Read it carefully before auditing the samplesheet."
         if has_protocol
-        else "No protocol PDF was provided."
+        else "No protocol document was provided. Flag anomalies based on biological knowledge and internal consistency."
+    )
+    protocol_section = (
+        f"\n=== EXPERIMENT PROTOCOL ===\n{protocol_text[:12000]}\n"
+        if protocol_text
+        else ""
     )
 
     prompt = f"""You are a senior research scientist and data quality auditor for a {assay_type} experiment.
 
 {protocol_note}
 
-Your job: read EVERY document below and flag EVERY anomaly, inconsistency, or error you find — especially values in the samplesheet that contradict what the protocol specifies.
+Your job: read EVERY section below and flag EVERY anomaly, inconsistency, or error — especially samplesheet values that contradict what the protocol specifies.
 
 Rules:
 - Name the SPECIFIC sample_id for every per-sample issue. Never say "some samples".
 - Flag empty/null values in required fields as hard findings.
-- Flag any field value that contradicts the protocol as hard (e.g. wrong organism, wrong strandedness, RIN that doesn't match, wrong experiment ID).
-- Flag biologically implausible values even without a protocol.
+- Flag any field value that contradicts the protocol as hard (e.g. wrong organism, wrong strandedness, RIN mismatch, wrong experiment ID).
+- Flag biologically implausible values even without a protocol (e.g. a human cell line listed as mouse).
 - Be exhaustive — list every issue you find.
-
+{protocol_section}
 === SCHEMA: COLUMN DEFINITIONS ===
 {col_defs}
 
@@ -352,29 +341,47 @@ Rules:
 Call flag_experiment_anomalies with every finding you identify.
 If nothing is wrong, call it with an empty list."""
 
-    content.append({"type": "text", "text": prompt})
-
     # ── 7. Call Claude ────────────────────────────────────────────────────────
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     try:
-        client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
         response = client.messages.create(
             model=MODEL,
-            max_tokens=4096,
+            max_tokens=8192,
             tools=[_SCIENTIST_REVIEW_TOOL],
             tool_choice={"type": "tool", "name": "flag_experiment_anomalies"},
-            messages=[{"role": "user", "content": content}],
+            messages=[{"role": "user", "content": prompt}],
         )
     except Exception as exc:
         log.error("scientist_review_failed", error=str(exc), exc_info=True)
-        return []
+        return [Finding(
+            severity="warning",
+            stage="protocol",
+            check="scientist_review_unavailable",
+            message=f"Holistic scientist review could not complete: {exc}. "
+                    "Manual review of the protocol against the samplesheet is required.",
+        )]
 
     log.info("anthropic_api_call",
              node="scientist_review",
              model=MODEL,
              input_tokens=response.usage.input_tokens,
              output_tokens=response.usage.output_tokens,
+             stop_reason=response.stop_reason,
              has_protocol=has_protocol,
              has_multiqc=bool(mq_data))
+
+    # If we hit the output token limit the tool JSON is truncated and unparseable
+    if response.stop_reason == "max_tokens":
+        log.error("scientist_review_truncated",
+                  output_tokens=response.usage.output_tokens)
+        return [Finding(
+            severity="warning",
+            stage="protocol",
+            check="scientist_review_truncated",
+            message="Scientist review response was truncated (max output tokens reached). "
+                    "Some protocol inconsistencies may not have been reported. "
+                    "Review the protocol against the samplesheet manually.",
+        )]
 
     tool_block = next(
         (b for b in response.content if b.type == "tool_use"), None

@@ -501,6 +501,77 @@ def pull(
 
 
 @app.command()
+def push(
+    inputs:  list[str] = typer.Argument(..., help="counts matrix (.tsv) + samplesheet (.csv)"),
+    schema:  str       = typer.Option("rna-seq/basic", "--schema", "-s",
+                                      help="Bundled schema name (default: rna-seq/basic)"),
+    mode:    str       = typer.Option("strict", "--mode", "-m", help="strict | permissive"),
+    api_url: str       = typer.Option("", "--api-url", envvar="BOUNCER_API_URL"),
+):
+    """
+    Push data files to the remote feature store.
+
+    The schema contract is resolved from the bundled schemas on the server.
+    Builds and registers an h5ad without running the full AI QC agent.
+
+        bouncer push counts.tsv samplesheet.csv
+        bouncer push counts.tsv samplesheet.csv --schema rna-seq/basic
+    """
+    import httpx
+
+    base = _resolve_api(api_url)
+
+    data_paths = [Path(p) for p in inputs]
+    missing = [str(p) for p in data_paths if not p.exists()]
+    if missing:
+        for m in missing:
+            console.print(f"[red]File not found: {m}[/red]")
+        raise typer.Exit(1)
+
+    console.print(
+        f"[bold]Bouncer Push[/bold]  "
+        f"schema=[cyan]{schema}[/cyan]  "
+        f"mode=[cyan]{mode}[/cyan]  "
+        f"files={[p.name for p in data_paths]}"
+    )
+
+    data_handles = [(p.name, p.open("rb"), _mime(p)) for p in data_paths]
+
+    try:
+        with httpx.Client(timeout=60) as client:
+            resp = client.post(
+                f"{base}/features/push",
+                data={"schema_name": schema, "mode": mode},
+                files=[("files", fh) for fh in data_handles],
+            )
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        console.print(f"[red]Push failed: {exc}[/red]")
+        raise typer.Exit(1)
+    finally:
+        for _, fobj, _ in data_handles:
+            fobj.close()
+
+    job = resp.json()
+    job_id = job["job_id"]
+    console.print(f"Job queued  [dim]id={job_id}[/dim]")
+
+    result = _poll_job(base, job_id)
+    if result is None:
+        raise typer.Exit(1)
+
+    if not result.get("registered"):
+        console.print(f"[red]Registration blocked:[/red] {result.get('error', '')}")
+        for f in result.get("findings", []):
+            console.print(f"  [{f['severity']}] {f['message']}")
+        raise typer.Exit(1)
+
+    console.print(f"[green]Registered:[/green] {result['feature_id']}")
+    if result.get("findings"):
+        console.print(f"[yellow]{len(result['findings'])} warning(s) attached.[/yellow]")
+
+
+@app.command()
 def ping(
     api_url: str = typer.Option("", "--api-url", envvar="BOUNCER_API_URL",
                                 help="Bouncer API base URL"),

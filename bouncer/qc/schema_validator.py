@@ -54,17 +54,32 @@ def validate_schema(
         series = samplesheet_df[name]
 
         # ── No nulls in required columns ──────────────────────────────────
-        null_count = series.isna().sum()
-        if col_def.required and null_count > 0:
-            findings.append(Finding(
-                severity="hard",
-                stage="schema",
-                check="null_in_required_column",
-                field=name,
-                found=f"{null_count} null(s)",
-                expected="no nulls",
-                message=f"Column '{name}' is required but has {null_count} null value(s).",
-            ))
+        if col_def.required:
+            if col_def.ntc_exempt or schema.ntc_exempt:
+                ntc_mask = (
+                    samplesheet_df["target_type"].str.lower().str.strip() == "ntc"
+                    if "target_type" in cols
+                    else pd.Series(False, index=samplesheet_df.index)
+                ) | (
+                    samplesheet_df["condition"].fillna("").str.lower().str.strip() == "ntc"
+                    if "condition" in cols
+                    else pd.Series(False, index=samplesheet_df.index)
+                )
+                check_series = series[~ntc_mask]
+            else:
+                check_series = series
+            null_count = check_series.isna().sum()
+            if null_count > 0:
+                findings.append(Finding(
+                    severity="hard",
+                    stage="schema",
+                    check="null_in_required_column",
+                    field=name,
+                    found=f"{null_count} null(s)",
+                    expected="no nulls",
+                    message=f"Column '{name}' is required but has {null_count} null value(s)"
+                    + (" (NTC rows excluded)" if (col_def.ntc_exempt or schema.ntc_exempt) else "") + ".",
+                ))
 
         # ── Dtype check ───────────────────────────────────────────────────
         dtype_ok, dtype_msg = _check_dtype(series.dropna(), col_def.dtype)

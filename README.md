@@ -20,10 +20,14 @@ Supported assays: RNA-seq (primary), flow cytometry (FCS), qPCR (QuantStudio EDS
 
 ## Installation
 
+**macOS / Linux:**
 ```bash
-pip install -e .                      # CLI only (no container deps)
-pip install -e ".[container]"         # full local install
-pip install -e ".[infra]"             # adds modal for deployment
+./scripts/install.sh
+```
+
+**Windows (PowerShell):**
+```powershell
+./scripts/install.ps1
 ```
 
 Set your API URL:

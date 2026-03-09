@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS features (
     id                VARCHAR PRIMARY KEY,
     assay_type        VARCHAR NOT NULL,
     data_stage        VARCHAR NOT NULL,
+    experiment_name   VARCHAR,
     organism          VARCHAR,
     conditions        JSON,
     treatments        JSON,
@@ -41,11 +42,39 @@ CREATE TABLE IF NOT EXISTS features (
 );
 """
 
+# Column migrations — safe to run on any existing DB.
+# Add a new ALTER TABLE line here whenever a column is added to _SCHEMA_SQL.
+_MIGRATIONS = [
+    "ALTER TABLE features ADD COLUMN IF NOT EXISTS experiment_name VARCHAR",
+]
 
-def _get_conn(db_path: str) -> duckdb.DuckDBPyConnection:
+
+def init_db(db_path: str) -> None:
+    """
+    Ensure the features table exists and all migrations are applied.
+
+    Safe to call on every container start — CREATE TABLE IF NOT EXISTS and
+    ADD COLUMN IF NOT EXISTS are both idempotent.
+    """
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = duckdb.connect(db_path)
     conn.execute(_SCHEMA_SQL)
+    for migration in _MIGRATIONS:
+        conn.execute(migration)
+    conn.close()
+
+
+def _get_conn(db_path: str, read_only: bool = False) -> duckdb.DuckDBPyConnection:
+    """Open a DuckDB connection, initialising schema on first use."""
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    if not read_only:
+        # Writer: ensure schema is up to date before every write
+        conn = duckdb.connect(db_path)
+        conn.execute(_SCHEMA_SQL)
+        for migration in _MIGRATIONS:
+            conn.execute(migration)
+    else:
+        conn = duckdb.connect(db_path, read_only=True)
     return conn
 
 
@@ -111,11 +140,12 @@ def register(
     # Insert into DuckDB
     conn = _get_conn(db_path)
     conn.execute(
-        """INSERT INTO features VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,now(),?)""",
+        """INSERT INTO features VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,now(),?)""",
         [
             feature_id,
             state["assay_type"],
             schema_dict.get("data_stage", "unknown"),
+            tags.get("experiment_name") or tags.get("experiment_id"),
             tags.get("organism"),
             json.dumps(tags.get("conditions", [])),
             json.dumps(tags.get("treatments", [])),
@@ -143,7 +173,7 @@ def list_features(
     data_stage: str | None = None,
 ) -> pd.DataFrame:
     """Return a summary DataFrame of all registered features."""
-    conn = _get_conn(db_path)
+    conn = _get_conn(db_path, read_only=True)
     where_clauses = []
     params = []
     if assay:
@@ -154,7 +184,7 @@ def list_features(
         params.append(data_stage)
     where = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
     df = conn.execute(
-        f"SELECT id, assay_type, data_stage, organism, qc_status, "
+        f"SELECT id, assay_type, data_stage, experiment_name, organism, qc_status, "
         f"schema_version, qc_version, created_at FROM features {where} "
         f"ORDER BY created_at DESC",
         params,

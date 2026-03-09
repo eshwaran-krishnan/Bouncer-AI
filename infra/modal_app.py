@@ -108,6 +108,10 @@ def run_qc(
 
     bouncer_volume.reload()
     os.makedirs(FEATURES_DIR, exist_ok=True)
+    os.makedirs(STAGING_DIR, exist_ok=True)
+
+    from bouncer.store.registry import init_db
+    init_db(DB_PATH)
 
     log.info("job_start",
              assay_type=assay_type,
@@ -140,17 +144,41 @@ def run_qc(
                   exc_info=True)
         raise
 
+    # ── Register to feature store ──────────────────────────────────────────────
+    # Register if QC passed (strict) or in permissive mode regardless.
+    feature_id = None
+    if state["passed"] or mode == "permissive":
+        try:
+            from bouncer.store.builder import build_adata
+            from bouncer.store.registry import register
+
+            adata = build_adata(state)
+            if adata is not None:
+                feature_id = register(adata, state, DB_PATH, FEATURES_DIR)
+                state = {**state, "feature_id": feature_id}
+                log.info("feature_registered",
+                         feature_id=feature_id,
+                         assay_type=assay_type,
+                         n_obs=adata.n_obs,
+                         n_vars=adata.n_vars)
+            else:
+                log.warning("adata_build_skipped",
+                            reason="counts_matrix or sample_sheet not found in file_map")
+        except Exception as exc:
+            # Registration failure never fails the QC job — just log it
+            log.error("registration_failed", error=str(exc), exc_info=True)
+
     bouncer_volume.commit()
 
     log.info("job_complete",
              passed=state["passed"],
              n_findings=len(state["findings"]),
-             feature_id=state.get("feature_id"))
+             feature_id=feature_id)
 
     return {
         "passed":      state["passed"],
         "report":      state["report"],
-        "feature_id":  state.get("feature_id"),
+        "feature_id":  feature_id,
         "findings":    state["findings"],
         "tags":        state.get("tags", {}),
     }
@@ -176,6 +204,10 @@ def api():
 
     os.makedirs(STAGING_DIR, exist_ok=True)
     os.makedirs(FEATURES_DIR, exist_ok=True)
+
+    # Ensure DB schema exists before any request is served
+    from bouncer.store.registry import init_db
+    init_db(DB_PATH)
 
     web_app = FastAPI(
         title="Bouncer QC API",
@@ -247,12 +279,172 @@ def api():
         except Exception as e:
             return {"status": "failed", "error": str(e)}
 
+    # ── Feature Store Endpoints ───────────────────────────────────────────────
+
     @web_app.get("/features")
-    def api_list_features(assay: str | None = None, data_stage: str | None = None):
-        raise HTTPException(503, detail="Feature store not yet implemented.")
+    def api_list_features(
+        assay:           str | None = None,
+        stage:           str | None = None,
+        experiment_name: str | None = None,
+        organism:        str | None = None,
+        qc_status:       str | None = None,
+        conditions:      str | None = None,   # comma-separated
+        treatments:      str | None = None,   # comma-separated
+        limit:           int        = 100,
+    ):
+        """
+        List registered features with optional filters.
+
+        All filters are AND-combined. JSON array columns (conditions,
+        treatments) are matched with LIKE.
+
+        Query params:
+          assay        — e.g. rna-seq
+          stage        — e.g. raw_counts, tpm
+          organism     — e.g. Homo sapiens
+          qc_status    — passed | passed_with_warnings | partial
+          conditions   — comma-separated values, e.g. treated,control
+          treatments   — comma-separated values
+          limit        — max rows returned (default 100)
+        """
+        import duckdb as _duckdb
+
+        bouncer_volume.reload()
+
+        clauses: list[str] = []
+        params:  list      = []
+
+        if assay:
+            clauses.append("assay_type = ?")
+            params.append(assay)
+        if stage:
+            clauses.append("data_stage = ?")
+            params.append(stage)
+        if experiment_name:
+            clauses.append("experiment_name LIKE ?")
+            params.append(f"%{experiment_name}%")
+        if organism:
+            clauses.append("organism = ?")
+            params.append(organism)
+        if qc_status:
+            clauses.append("qc_status = ?")
+            params.append(qc_status)
+        for raw, col in [(conditions, "conditions"), (treatments, "treatments")]:
+            if raw:
+                for val in raw.split(","):
+                    val = val.strip()
+                    if val:
+                        clauses.append(f"{col} LIKE ?")
+                        params.append(f"%{val}%")
+
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        try:
+            conn = _duckdb.connect(DB_PATH, read_only=True)
+            rows = conn.execute(
+                f"""SELECT id, assay_type, data_stage, experiment_name, organism,
+                           conditions, treatments, sample_ids,
+                           qc_status, schema_version, qc_version,
+                           created_at
+                    FROM features {where}
+                    ORDER BY created_at DESC
+                    LIMIT ?""",
+                params + [limit],
+            ).fetchall()
+            cols = ["id", "assay_type", "data_stage", "experiment_name", "organism",
+                    "conditions", "treatments", "sample_ids",
+                    "qc_status", "schema_version", "qc_version", "created_at"]
+            conn.close()
+        except Exception as exc:
+            raise HTTPException(500, detail=str(exc))
+
+        return [dict(zip(cols, row)) for row in rows]
+
+    @web_app.get("/features/{feature_id}")
+    def api_get_feature(feature_id: str):
+        """Return full metadata for a single registered feature."""
+        import duckdb as _duckdb
+
+        bouncer_volume.reload()
+        try:
+            conn = _duckdb.connect(DB_PATH, read_only=True)
+            row = conn.execute(
+                "SELECT * FROM features WHERE id = ?", [feature_id]
+            ).fetchone()
+            cols = [d[0] for d in conn.description]
+            conn.close()
+        except Exception as exc:
+            raise HTTPException(500, detail=str(exc))
+
+        if row is None:
+            raise HTTPException(404, detail=f"Feature {feature_id!r} not found.")
+        return dict(zip(cols, row))
 
     @web_app.get("/features/{feature_id}/download")
     def api_pull_feature(feature_id: str):
-        raise HTTPException(503, detail="Pull API not yet implemented.")
+        """Download a registered feature set as an h5ad file."""
+        import tempfile
+        from bouncer.store.pull import pull_data
+
+        bouncer_volume.reload()
+        try:
+            adata = pull_data(DB_PATH, FEATURES_DIR, feature_id=feature_id)
+        except (ValueError, FileNotFoundError) as exc:
+            raise HTTPException(404, detail=str(exc))
+        except Exception as exc:
+            raise HTTPException(500, detail=str(exc))
+
+        with tempfile.NamedTemporaryFile(suffix=".h5ad", delete=False) as tmp:
+            adata.write_h5ad(tmp.name)
+            data = open(tmp.name, "rb").read()
+
+        return Response(
+            content=data,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{feature_id}.h5ad"'},
+        )
+
+    @web_app.post("/features/sql")
+    def api_sql_query(body: dict):
+        """
+        Run a read-only SQL query against the features table.
+
+        Only SELECT statements are accepted. This is intended for data team
+        power users who need filtering beyond what the REST params support.
+
+        Request body:
+          { "query": "SELECT id, assay_type FROM features WHERE organism = 'Homo sapiens'" }
+
+        The features table schema:
+          id, assay_type, data_stage, organism, conditions (JSON), treatments (JSON),
+          cell_lines (JSON), sample_ids (JSON), tags (JSON), qc_mode, qc_status,
+          warnings (JSON), schema_version, qc_version, input_hashes (JSON),
+          h5ad_path, provenance (JSON), created_at, parent_id
+        """
+        import duckdb as _duckdb
+
+        query = (body.get("query") or "").strip()
+        if not query:
+            raise HTTPException(400, detail="'query' field is required.")
+
+        # Allow only SELECT statements
+        if not query.upper().lstrip().startswith("SELECT"):
+            raise HTTPException(400, detail="Only SELECT queries are permitted.")
+
+        # Block obviously dangerous keywords as a belt-and-braces check
+        blocked = {"DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "CREATE",
+                   "TRUNCATE", "ATTACH", "DETACH", "COPY", "EXPORT"}
+        tokens = set(query.upper().split())
+        if tokens & blocked:
+            raise HTTPException(400, detail="Query contains disallowed keywords.")
+
+        bouncer_volume.reload()
+        try:
+            conn = _duckdb.connect(DB_PATH, read_only=True)
+            result = conn.execute(query).fetchdf()
+            conn.close()
+        except Exception as exc:
+            raise HTTPException(400, detail=f"Query error: {exc}")
+
+        return result.to_dict(orient="records")
 
     return web_app

@@ -190,10 +190,25 @@ class QCContract(BaseModel):
 def load_schema(path: str) -> SchemaContract:
     import yaml
     with open(path, "r") as f:
-        return SchemaContract(**yaml.safe_load(f))
+        raw = yaml.safe_load(f)
+    try:
+        return SchemaContract(**raw)
+    except Exception as exc:
+        raise ValueError(
+            f"Schema validation failed for: {path}\n"
+            f"  output_features: {raw.get('output_features') if isinstance(raw, dict) else '(not a dict)'}\n"
+            f"  {exc}"
+        ) from exc
 
 
 def load_qc(path: str) -> QCContract:
     import yaml
     with open(path, "r") as f:
-        return QCContract(**yaml.safe_load(f))
+        raw = yaml.safe_load(f)
+    try:
+        return QCContract(**raw)
+    except Exception as exc:
+        raise ValueError(
+            f"QC contract validation failed for: {path}\n"
+            f"  {exc}"
+        ) from exc

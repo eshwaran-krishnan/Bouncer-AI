@@ -1,0 +1,176 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# BOUNCER — Schema Contract Template
+#
+# Copy this file and fill in the fields for your assay.
+# Required fields are marked with [REQUIRED].
+# Optional fields can be removed if not applicable.
+#
+# Naming convention: <assay>/<name>-schema.yaml
+# e.g.  schemas/rna-seq/basic-schema.yaml
+#       schemas/flow-cytometry/panel-a-schema.yaml
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ── Header ────────────────────────────────────────────────────────────────────
+
+version: "1.0.0"                  # [REQUIRED] Increment when structure changes.
+                                  # Stored in DuckDB provenance for every feature.
+
+assay_type: rna-seq               # [REQUIRED] rna-seq | flow-cytometry | qpcr
+                                  # Must match the --assay flag passed to the CLI.
+
+data_stage: raw_counts            # [REQUIRED] What stage of processing this data is at.
+                                  # Examples: raw_counts | tpm | rpkm | normalized |
+                                  #           log2 | deseq2_normalized | fcs_raw | ct_values
+
+index_column: gene_id             # Column used as the row index of the data matrix.
+                                  # RNA-seq: gene_id  |  qPCR: target_name
+                                  # Leave blank for flow cytometry (no fixed index).
+
+sample_columns: from_samplesheet  # How sample columns are resolved.
+                                  # "from_samplesheet" — use sample_id column as source of truth.
+                                  # "from_parent"      — inherit from a previously registered feature.
+
+# ── Sample Metadata Columns ───────────────────────────────────────────────────
+#
+# Each entry describes one column expected in the samplesheet.
+#
+# Fields per column:
+#   name           [REQUIRED]  Column name (must match samplesheet header exactly)
+#   dtype          [REQUIRED]  str | int | float | category | bool
+#   required       default: true   If true, column must exist with no nulls.
+#   unique         default: false  If true, all values must be unique (use for IDs).
+#   allowed_values  optional    Enforced set of values. Only valid for dtype: category.
+#   description     optional    Human-readable note stored in provenance.
+#
+# ── Core identifiers (always include these) ───────────────────────────────────
+
+metadata_columns:
+
+  - name: sample_id
+    dtype: str
+    required: true
+    unique: true
+    description: >
+      Primary key. Must be unique across all samples.
+      Must match column headers in the counts matrix exactly.
+
+  - name: experiment_id
+    dtype: str
+    required: true
+    description: >
+      Groups samples belonging to the same experimental run.
+      Used to populate experiment_name in the feature store.
+
+  # ── Biology (fill in what applies to your experiment) ─────────────────────
+
+  - name: organism
+    dtype: category
+    required: true
+    allowed_values:
+      - Homo sapiens
+      - Mus musculus
+      - Rattus norvegicus
+      # Add more as needed
+
+  - name: tissue
+    dtype: str
+    required: true
+    description: Tissue or organ of origin (e.g. liver, PBMC, HEK293).
+
+  - name: cell_type
+    dtype: str
+    required: false
+    description: Cell type or cell line name. Required when tissue = cell_line.
+
+  - name: condition
+    dtype: category
+    required: true
+    description: >
+      Primary experimental grouping (e.g. treated, control, knockdown).
+      Must include a recognisable control label — see QC contract.
+
+  - name: treatment
+    dtype: str
+    required: false
+    description: Specific perturbation (drug name, siRNA target, cytokine, etc.)
+
+  - name: treatment_concentration_uM
+    dtype: float
+    required: false
+    description: Treatment concentration in micromolar.
+
+  - name: timepoint_hr
+    dtype: float
+    required: false
+    description: Time after treatment in hours.
+
+  - name: genotype
+    dtype: str
+    required: false
+    description: Genetic background or mutation (e.g. TP53_KO, KRAS_G12D).
+
+  # ── Experimental design ───────────────────────────────────────────────────
+
+  - name: replicate
+    dtype: int
+    required: true
+    description: Biological replicate number (1, 2, 3 …).
+
+  - name: batch
+    dtype: str
+    required: false
+    description: >
+      Batch identifier — sequencing run, library prep date, plate ID.
+      Absence will trigger a design warning.
+
+  # ── Donor / patient (remove if not applicable) ────────────────────────────
+
+  - name: donor_id
+    dtype: str
+    required: false
+    description: Pseudonymised donor or patient ID. No PII.
+
+  - name: sex
+    dtype: category
+    required: false
+    allowed_values: [male, female, unknown, mixed]
+
+  - name: age
+    dtype: float
+    required: false
+    description: Donor age in years.
+
+  # ── Add your assay-specific columns below ─────────────────────────────────
+  #
+  # Example for RNA-seq library columns:
+  #
+  # - name: library_type
+  #   dtype: category
+  #   required: true
+  #   allowed_values: [single-end, paired-end]
+  #
+  # - name: strandedness
+  #   dtype: category
+  #   required: true
+  #   allowed_values: [forward, reverse, unstranded]
+  #
+  # Example for flow cytometry:
+  #
+  # - name: panel_version
+  #   dtype: str
+  #   required: true
+  #
+  # - name: acquisition_events
+  #   dtype: int
+  #   required: false
+
+# ── Feature Store Output ──────────────────────────────────────────────────────
+#
+# Names the data objects registered to DuckDB after a successful QC run.
+# These are documentation — Bouncer registers the full AnnData regardless.
+# Use plain string list items (not key: value mappings).
+
+output_features:
+  - counts_matrix        # genes × samples raw count matrix (AnnData .X)
+  - sample_metadata      # samplesheet columns (AnnData .obs)
+  - gene_metadata        # gene_id index + annotation columns (AnnData .var)

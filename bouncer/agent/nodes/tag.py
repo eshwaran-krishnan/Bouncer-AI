@@ -33,6 +33,7 @@ _TAG_TOOL = {
             "sample_ids":      {"type": "array", "items": {"type": "string"}},
             "n_samples":       {"type": "integer"},
             "n_conditions":    {"type": "integer"},
+            "experiment_name":  {"type": "string", "description": "Experiment or project name from samplesheet experiment_id column or protocol"},
             "pipeline":        {"type": "string", "description": "Bioinformatics pipeline, e.g. 'nf-core/rnaseq'"},
             "data_stage":      {"type": "string", "description": "e.g. 'raw_counts', 'tpm'"},
         },

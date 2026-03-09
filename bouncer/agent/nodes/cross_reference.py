@@ -7,6 +7,7 @@ right checks based on assay_type. Accumulates findings in state.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import pandas as pd
@@ -94,14 +95,14 @@ def cross_reference(state: BouncerState) -> BouncerState:
         if eds_data:
             findings.extend(_check_eds(eds_data, qc))
 
-    # ── Protocol consistency (all assay types with protocol + samplesheet) ────
-    protocol_data = extracted.get("protocol_document")
-    if protocol_data and samplesheet_df is not None:
+    # ── Holistic scientist review ──────────────────────────────────────────────
+    # Claude reads ALL documents together — protocol full text, every samplesheet
+    # row, MultiQC per-sample stats, counts summary — and flags anomalies the
+    # way a senior scientist would when reviewing an experiment end-to-end.
+    if samplesheet_df is not None:
         findings.extend(
-            _check_protocol_consistency(protocol_data, samplesheet_df, state["assay_type"])
+            _scientist_review(extracted, samplesheet_df, schema, state["assay_type"])
         )
-    elif protocol_data and samplesheet_df is None:
-        log.warning("protocol_check_skipped", reason="no samplesheet to compare against")
 
     # ── Design checks (all assay types with a samplesheet) ────────────────────
     if samplesheet_df is not None:
@@ -177,143 +178,203 @@ def _check_fcs(fcs_data: dict, qc: QCContract) -> list[Finding]:
     return findings
 
 
-def _check_protocol_consistency(
-    protocol_data: dict,
+_SCIENTIST_REVIEW_TOOL = {
+    "name": "flag_experiment_anomalies",
+    "description": (
+        "Flag every anomaly, inconsistency, or suspicious value found by reading "
+        "all experiment documents together. Report each finding individually so "
+        "each affected sample gets its own entry."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "findings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "severity": {
+                            "type": "string",
+                            "enum": ["hard", "soft", "warning"],
+                            "description": (
+                                "hard: clear factual error or contradiction that should block "
+                                "registration (wrong organism name, concentration never in protocol, "
+                                "impossible value). "
+                                "soft: likely error requiring investigation before trusting the data. "
+                                "warning: noteworthy deviation that may be intentional."
+                            ),
+                        },
+                        "check": {
+                            "type": "string",
+                            "description": "snake_case name for this check, e.g. organism_mismatch, passage_out_of_range",
+                        },
+                        "field": {
+                            "type": "string",
+                            "description": "The samplesheet column or data field involved",
+                        },
+                        "sample": {
+                            "type": "string",
+                            "description": "sample_id of the affected sample, or omit for dataset-level issues",
+                        },
+                        "expected": {
+                            "type": "string",
+                            "description": "What the protocol / schema / other documents specify",
+                        },
+                        "found": {
+                            "type": "string",
+                            "description": "What the samplesheet or data actually contains",
+                        },
+                        "source_documents": {
+                            "type": "string",
+                            "description": "Which documents informed this finding, e.g. 'protocol + samplesheet'",
+                        },
+                        "message": {
+                            "type": "string",
+                            "description": "Clear explanation of the anomaly and why it matters scientifically",
+                        },
+                    },
+                    "required": ["severity", "check", "message"],
+                },
+            }
+        },
+        "required": ["findings"],
+    },
+}
+
+
+def _scientist_review(
+    extracted: dict,
     samplesheet_df: pd.DataFrame,
+    schema: SchemaContract,
     assay_type: str,
 ) -> list[Finding]:
     """
-    Use Claude to compare protocol structured parameters against samplesheet
-    values and flag any sample-level or dataset-level discrepancies.
+    Holistic scientist review — Claude reads the actual PDF + all data together.
 
-    Examples of what this catches:
-      - Protocol specifies passage 3–7 but samplesheet has passage_number = 12
-      - Protocol lists concentrations [1, 10] uM but samplesheet has 5 uM
-      - Protocol states 24 h timepoint but samplesheet has timepoint_hr = 48
-      - Protocol organism differs from samplesheet organism column
-      - Protocol describes single-end library but samplesheet says paired-end
+    The PDF is passed directly as a document block (not extracted text) so
+    Claude has the authoritative source. The full samplesheet is passed row by
+    row so Claude can flag specific sample_ids, not just column-level summaries.
+
+    Catches things deterministic checks miss:
+      - Two samples with wrong organism buried in a larger samplesheet
+      - strandedness contradicting the protocol's dUTP / forward declaration
+      - A single sample's RIN score contradicting what the protocol recorded
+      - Empty required fields (replicate, condition) on specific samples
+      - Condition labels (treated/control) inconsistent with the protocol design
+      - Library type (single-end vs paired-end) contradicting protocol
+      - Experiment ID mismatches between protocol and samplesheet
     """
-    structured_params = protocol_data.get("structured_params") or {}
-    if not structured_params or structured_params.get("_parse_error"):
-        log.warning("protocol_check_skipped",
-                    reason="structured_params missing or failed to parse")
-        return []
+    content: list[dict] = []
+    protocol_data = extracted.get("protocol_document")
+    has_protocol  = False
 
-    # Build a compact samplesheet summary (avoid huge token payloads)
-    sheet_summary: dict = {}
-    for col in samplesheet_df.columns:
-        unique_vals = samplesheet_df[col].dropna().unique().tolist()
-        if len(unique_vals) <= 20:
-            sheet_summary[col] = unique_vals
-        else:
-            sheet_summary[col] = unique_vals[:20] + [f"... ({len(unique_vals)} total)"]
-
-    # Per-sample view for numeric columns — useful for range/outlier checks
-    numeric_cols = samplesheet_df.select_dtypes(include="number").columns.tolist()
-    per_sample: dict = {}
-    if "sample_id" in samplesheet_df.columns:
-        id_col = "sample_id"
-    else:
-        id_col = samplesheet_df.columns[0]
-    for col in numeric_cols[:10]:   # cap to avoid huge payloads
-        per_sample[col] = samplesheet_df.set_index(id_col)[col].to_dict()
-
-    _PROTOCOL_TOOL = {
-        "name": "report_protocol_discrepancies",
-        "description": (
-            "Report discrepancies found between the protocol document and the samplesheet. "
-            "Only report genuine inconsistencies — do not flag missing protocol fields "
-            "unless they actively contradict samplesheet values."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "discrepancies": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "severity": {
-                                "type": "string",
-                                "enum": ["hard", "soft", "warning"],
-                                "description": (
-                                    "hard: clear factual contradiction (e.g. wrong species, "
-                                    "out-of-range passage number, concentration not in protocol). "
-                                    "soft: likely mismatch worth investigating. "
-                                    "warning: minor or possibly intentional deviation."
-                                ),
-                            },
-                            "check": {
-                                "type": "string",
-                                "description": "Short snake_case check name, e.g. passage_number_out_of_range",
-                            },
-                            "field": {
-                                "type": "string",
-                                "description": "Samplesheet column name that conflicts",
-                            },
-                            "sample": {
-                                "type": "string",
-                                "description": "Specific sample_id if the issue is per-sample, else omit",
-                            },
-                            "protocol_value": {
-                                "type": "string",
-                                "description": "What the protocol specifies",
-                            },
-                            "samplesheet_value": {
-                                "type": "string",
-                                "description": "What the samplesheet contains",
-                            },
-                            "message": {
-                                "type": "string",
-                                "description": "Human-readable explanation of the discrepancy",
-                            },
-                        },
-                        "required": ["severity", "check", "message"],
+    # ── 1. Pass the PDF directly as a document block ──────────────────────────
+    # This gives Claude the authoritative source rather than a lossy extraction.
+    if protocol_data and not protocol_data.get("error"):
+        pdf_path = protocol_data.get("path", "")
+        if pdf_path and os.path.exists(pdf_path):
+            try:
+                with open(pdf_path, "rb") as fh:
+                    pdf_b64 = base64.b64encode(fh.read()).decode()
+                content.append({
+                    "type": "document",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "application/pdf",
+                        "data": pdf_b64,
                     },
-                }
-            },
-            "required": ["discrepancies"],
-        },
-    }
+                    "title": "Experiment Protocol",
+                })
+                has_protocol = True
+                log.info("scientist_review_pdf_attached", path=pdf_path)
+            except Exception as exc:
+                log.warning("scientist_review_pdf_read_failed",
+                            path=pdf_path, error=str(exc))
 
-    prompt = f"""You are a biological data quality auditor for a {assay_type} experiment.
+    # ── 2. Full samplesheet — every row ───────────────────────────────────────
+    sheet_csv = samplesheet_df.to_csv(index=False)
 
-Compare the PROTOCOL PARAMETERS (extracted from the experiment protocol PDF) against
-the SAMPLESHEET VALUES (from the sample metadata file).
+    # ── 3. Schema column definitions ──────────────────────────────────────────
+    col_defs = "\n".join(
+        f"  {c.name}: dtype={c.dtype}, required={c.required}"
+        + (f", allowed_values={c.allowed_values}" if c.allowed_values else "")
+        for c in schema.metadata_columns
+    )
 
-Flag any samples or dataset-level values that are inconsistent with what the
-protocol specifies. Be precise — only flag genuine contradictions, not missing info.
+    # ── 4. MultiQC per-sample stats ───────────────────────────────────────────
+    mq_data = extracted.get("multiqc_json")
+    multiqc_section = "Not provided."
+    if mq_data and not mq_data.get("error"):
+        stats = mq_data.get("general_stats") or {}
+        multiqc_section = json.dumps(stats, indent=2, default=str)[:3000]
 
-PROTOCOL PARAMETERS (extracted from PDF):
-{json.dumps(structured_params, indent=2, default=str)}
+    # ── 5. Counts matrix shape + sample IDs ───────────────────────────────────
+    counts_data = extracted.get("counts_matrix")
+    counts_section = "Not provided."
+    if counts_data and not counts_data.get("error"):
+        counts_section = (
+            f"Shape: {counts_data.get('shape', 'unknown')} (genes × samples)\n"
+            f"Sample IDs in matrix: {counts_data.get('columns', [])}"
+        )
 
-SAMPLESHEET COLUMN SUMMARIES (unique values per column):
-{json.dumps(sheet_summary, indent=2, default=str)}
+    # ── 6. Build the text prompt ──────────────────────────────────────────────
+    protocol_note = (
+        "The experiment protocol PDF is attached above. Read it carefully."
+        if has_protocol
+        else "No protocol PDF was provided."
+    )
 
-PER-SAMPLE NUMERIC VALUES:
-{json.dumps(per_sample, indent=2, default=str)}
+    prompt = f"""You are a senior research scientist and data quality auditor for a {assay_type} experiment.
 
-Call report_protocol_discrepancies with all discrepancies found.
-If there are no discrepancies, call it with an empty list."""
+{protocol_note}
 
+Your job: read EVERY document below and flag EVERY anomaly, inconsistency, or error you find — especially values in the samplesheet that contradict what the protocol specifies.
+
+Rules:
+- Name the SPECIFIC sample_id for every per-sample issue. Never say "some samples".
+- Flag empty/null values in required fields as hard findings.
+- Flag any field value that contradicts the protocol as hard (e.g. wrong organism, wrong strandedness, RIN that doesn't match, wrong experiment ID).
+- Flag biologically implausible values even without a protocol.
+- Be exhaustive — list every issue you find.
+
+=== SCHEMA: COLUMN DEFINITIONS ===
+{col_defs}
+
+=== SAMPLESHEET (full, all rows) ===
+{sheet_csv}
+
+=== MULTIQC PER-SAMPLE STATISTICS ===
+{multiqc_section}
+
+=== COUNTS MATRIX ===
+{counts_section}
+
+Call flag_experiment_anomalies with every finding you identify.
+If nothing is wrong, call it with an empty list."""
+
+    content.append({"type": "text", "text": prompt})
+
+    # ── 7. Call Claude ────────────────────────────────────────────────────────
     try:
         client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
         response = client.messages.create(
             model=MODEL,
-            max_tokens=1024,
-            tools=[_PROTOCOL_TOOL],
-            tool_choice={"type": "tool", "name": "report_protocol_discrepancies"},
-            messages=[{"role": "user", "content": prompt}],
+            max_tokens=4096,
+            tools=[_SCIENTIST_REVIEW_TOOL],
+            tool_choice={"type": "tool", "name": "flag_experiment_anomalies"},
+            messages=[{"role": "user", "content": content}],
         )
     except Exception as exc:
-        log.error("protocol_check_failed", error=str(exc), exc_info=True)
+        log.error("scientist_review_failed", error=str(exc), exc_info=True)
         return []
 
     log.info("anthropic_api_call",
-             node="protocol_check",
+             node="scientist_review",
              model=MODEL,
              input_tokens=response.usage.input_tokens,
-             output_tokens=response.usage.output_tokens)
+             output_tokens=response.usage.output_tokens,
+             has_protocol=has_protocol,
+             has_multiqc=bool(mq_data))
 
     tool_block = next(
         (b for b in response.content if b.type == "tool_use"), None
@@ -321,22 +382,20 @@ If there are no discrepancies, call it with an empty list."""
     if not tool_block:
         return []
 
-    discrepancies = tool_block.input.get("discrepancies", [])
-    log.info("protocol_discrepancies_found", n=len(discrepancies))
+    raw_findings = tool_block.input.get("findings", [])
+    log.info("scientist_review_complete", n_findings=len(raw_findings))
 
     findings: list[Finding] = []
-    for d in discrepancies:
-        expected = d.get("protocol_value")
-        found    = d.get("samplesheet_value")
+    for f in raw_findings:
         findings.append(Finding(
-            severity=d.get("severity", "warning"),
+            severity=f.get("severity", "warning"),
             stage="protocol",
-            check=d.get("check", "protocol_mismatch"),
-            field=d.get("field"),
-            sample=d.get("sample"),
-            expected=expected,
-            found=found,
-            message=d.get("message", ""),
+            check=f.get("check", "scientist_review"),
+            field=f.get("field"),
+            sample=f.get("sample"),
+            expected=f.get("expected"),
+            found=f.get("found"),
+            message=f.get("message", ""),
         ))
 
     return findings

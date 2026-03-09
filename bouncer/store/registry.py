@@ -129,11 +129,11 @@ def register(
 
     warnings = [f for f in findings if f["severity"] in ("soft", "warning")]
 
-    # Attach to AnnData
-    adata.uns["provenance"]    = [provenance.model_dump(mode="json")]
-    adata.uns["warnings"]      = warnings
-    adata.uns["tags"]          = tags
-    adata.uns["bouncer_qc"]    = {"status": qc_status, "mode": mode}
+    # Attach to AnnData — JSON-encode complex values so h5py can serialise them
+    adata.uns["provenance"]    = json.dumps([provenance.model_dump(mode="json")])
+    adata.uns["warnings"]      = json.dumps(warnings)
+    adata.uns["tags"]          = json.dumps(tags)
+    adata.uns["bouncer_qc"]    = json.dumps({"status": qc_status, "mode": mode})
 
     adata.write_h5ad(h5ad_path)
 

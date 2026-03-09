@@ -255,11 +255,13 @@ def push_to_store(
     state = {
         "passed": len(hard) == 0,
         "mode": mode,
+        "assay_type": schema.assay_type,
+        "input_files": [counts_path, sheet_path],
         "findings": [f.model_dump() for f in findings],
         "tags": {
             "assay_type": schema.assay_type,
             "data_stage": schema.data_stage,
-            "n_samples":  int(counts_df.shape[1]),
+            "n_samples":  len(sample_columns),
         },
         "schema_contract": schema_dict,
         "qc_contract": {},

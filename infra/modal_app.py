@@ -239,8 +239,10 @@ def push_to_store(
     counts_df = pd.read_csv(counts_path, sep="\t", index_col=schema.index_column)
     sheet_df  = pd.read_csv(sheet_path)
 
-    # Validate metadata columns
-    findings = validate_schema(sheet_df, schema, counts_columns=list(counts_df.columns))
+    # Validate metadata columns — drop non-numeric annotation columns (e.g. gene_name)
+    # before extracting sample column names, matching the behaviour of cross_reference.py
+    sample_columns = list(counts_df.select_dtypes(include="number").columns)
+    findings = validate_schema(sheet_df, schema, counts_columns=sample_columns)
     hard = [f for f in findings if f.severity == "hard"]
     if hard and mode == "strict":
         return {
